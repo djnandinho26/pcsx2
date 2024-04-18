@@ -5289,7 +5289,8 @@ void FullscreenUI::DrawSaveStateSelector(bool is_loading)
 
 	bool close_handled = false;
 	if (s_save_state_selector_open &&
-		ImGui::BeginChild("state_list", ImVec2(io.DisplaySize.x, io.DisplaySize.y - heading_size.y), false, ImGuiWindowFlags_NavFlattened))
+		ImGui::BeginChild("state_list", ImVec2(io.DisplaySize.x, io.DisplaySize.y - LayoutScale(LAYOUT_FOOTER_HEIGHT) - heading_size.y),
+			false, ImGuiWindowFlags_NavFlattened))
 	{
 		BeginMenuButtons();
 
@@ -6211,7 +6212,7 @@ void FullscreenUI::DrawGameListSettingsWindow()
 	{
 		BeginNavBar();
 
-		if (NavButton(ICON_FA_BACKWARD, true, true))
+		if (NavButton(ICON_PF_BACKWARD, true, true))
 		{
 			s_current_main_window = MainWindowType::GameList;
 			QueueResetFocus();
@@ -6284,7 +6285,7 @@ void FullscreenUI::DrawGameListSettingsWindow()
 					if (index == 0)
 					{
 						// Open In File Browser.
-						Host::OpenURL(Path::CreateFileURL(dir));
+						ExitFullscreenAndOpenURL(Path::CreateFileURL(dir));
 					}
 					else if (index == 1)
 					{
