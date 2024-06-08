@@ -56,8 +56,6 @@ Pcsx2Config::GSOptions GSConfig;
 
 static GSRendererType GSCurrentRenderer;
 
-static u64 s_next_manual_present_time;
-
 GSRendererType GSGetCurrentRenderer()
 {
 	return GSCurrentRenderer;
@@ -98,7 +96,8 @@ static RenderAPI GetAPIForRenderer(GSRendererType renderer)
 	}
 }
 
-static bool OpenGSDevice(GSRendererType renderer, bool clear_state_on_fail, bool recreate_window)
+static bool OpenGSDevice(GSRendererType renderer, bool clear_state_on_fail, bool recreate_window,
+	GSVSyncMode vsync_mode, bool allow_present_throttle)
 {
 	const RenderAPI new_api = GetAPIForRenderer(renderer);
 	switch (new_api)
@@ -133,7 +132,7 @@ static bool OpenGSDevice(GSRendererType renderer, bool clear_state_on_fail, bool
 			return false;
 	}
 
-	bool okay = g_gs_device->Create();
+	bool okay = g_gs_device->Create(vsync_mode, allow_present_throttle);
 	if (okay)
 	{
 		okay = ImGuiManager::Initialize();
@@ -266,9 +265,11 @@ bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_r
 	{
 		// We need a new render window when changing APIs.
 		const bool recreate_window = (g_gs_device->GetRenderAPI() != GetAPIForRenderer(GSConfig.Renderer));
+		const GSVSyncMode vsync_mode = g_gs_device->GetVSyncMode();
+		const bool allow_present_throttle = g_gs_device->IsPresentThrottleAllowed();
 		CloseGSDevice(false);
 
-		if (!OpenGSDevice(new_renderer, false, recreate_window))
+		if (!OpenGSDevice(new_renderer, false, recreate_window, vsync_mode, allow_present_throttle))
 		{
 			Host::AddKeyedOSDMessage("GSReopenFailed",
 				TRANSLATE_STR("GS", "Failed to reopen, restoring old configuration."),
@@ -279,7 +280,7 @@ bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_r
 			if (old_config.has_value())
 				GSConfig = *old_config.value();
 
-			if (!OpenGSDevice(GSConfig.Renderer, false, recreate_window))
+			if (!OpenGSDevice(GSConfig.Renderer, false, recreate_window, vsync_mode, allow_present_throttle))
 			{
 				pxFailRel("Failed to reopen GS on old config");
 				Host::ReleaseRenderWindow();
@@ -309,14 +310,15 @@ bool GSreopen(bool recreate_device, bool recreate_renderer, GSRendererType new_r
 	return true;
 }
 
-bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* basemem)
+bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* basemem,
+	GSVSyncMode vsync_mode, bool allow_present_throttle)
 {
 	GSConfig = config;
 
 	if (renderer == GSRendererType::Auto)
 		renderer = GSUtil::GetPreferredRenderer();
 
-	bool res = OpenGSDevice(renderer, true, false);
+	bool res = OpenGSDevice(renderer, true, false, vsync_mode, allow_present_throttle);
 	if (res)
 	{
 		res = OpenGSRenderer(renderer, basemem);
@@ -471,29 +473,13 @@ void GSPresentCurrentFrame()
 
 void GSThrottlePresentation()
 {
-	if (g_gs_device->GetVsyncMode() != VsyncMode::Off)
+	if (g_gs_device->GetVSyncMode() == GSVSyncMode::FIFO)
 	{
 		// Let vsync take care of throttling.
 		return;
 	}
 
-	// Manually throttle presentation when vsync isn't enabled, so we don't try to render the
-	// fullscreen UI at thousands of FPS and make the gpu go brrrrrrrr.
-	const float surface_refresh_rate = g_gs_device->GetWindowInfo().surface_refresh_rate;
-	const float throttle_rate = (surface_refresh_rate > 0.0f) ? surface_refresh_rate : 60.0f;
-
-	const u64 sleep_period = static_cast<u64>(static_cast<double>(GetTickFrequency()) / static_cast<double>(throttle_rate));
-	const u64 current_ts = GetCPUTicks();
-
-	// Allow it to fall behind/run ahead up to 2*period. Sleep isn't that precise, plus we need to
-	// allow time for the actual rendering.
-	const u64 max_variance = sleep_period * 2;
-	if (static_cast<u64>(std::abs(static_cast<s64>(current_ts - s_next_manual_present_time))) > max_variance)
-		s_next_manual_present_time = current_ts + sleep_period;
-	else
-		s_next_manual_present_time += sleep_period;
-
-	Threading::SleepUntil(s_next_manual_present_time);
+	g_gs_device->ThrottlePresentation();
 }
 
 void GSGameChanged()
@@ -528,9 +514,16 @@ void GSUpdateDisplayWindow()
 	ImGuiManager::WindowResized();
 }
 
-void GSSetVSyncMode(VsyncMode mode)
+void GSSetVSyncMode(GSVSyncMode mode, bool allow_present_throttle)
 {
-	g_gs_device->SetVSync(mode);
+	static constexpr std::array<const char*, static_cast<size_t>(GSVSyncMode::Count)> modes = {{
+		"Disabled",
+		"FIFO",
+		"Mailbox",
+	}};
+	Console.WriteLnFmt(Color_StrongCyan, "Setting vsync mode: {}{}", modes[static_cast<size_t>(mode)],
+		allow_present_throttle ? " (throttle allowed)" : "");
+	g_gs_device->SetVSyncMode(mode, allow_present_throttle);
 }
 
 bool GSWantsExclusiveFullscreen()
@@ -543,12 +536,16 @@ bool GSWantsExclusiveFullscreen()
 	return GSDevice::GetRequestedExclusiveFullscreenMode(&width, &height, &refresh_rate);
 }
 
-bool GSGetHostRefreshRate(float* refresh_rate)
+std::optional<float> GSGetHostRefreshRate()
 {
 	if (!g_gs_device)
-		return false;
+		return std::nullopt;
 
-	return g_gs_device->GetHostRefreshRate(refresh_rate);
+	const float surface_refresh_rate = g_gs_device->GetWindowInfo().surface_refresh_rate;
+	if (surface_refresh_rate == 0.0f)
+		return std::nullopt;
+	else
+		return surface_refresh_rate;
 }
 
 void GSGetAdaptersAndFullscreenModes(
@@ -1113,28 +1110,18 @@ BEGIN_HOTKEY_LIST(g_gs_hotkeys){"Screenshot", TRANSLATE_NOOP("Hotkeys", "Graphic
 					Pcsx2Config::GSOptions::AspectRatioNames[static_cast<int>(EmuConfig.CurrentAspectRatio)]),
 				Host::OSD_QUICK_DURATION);
 		}},
-	{"CycleMipmapMode", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle Hardware Mipmapping"),
+	{"ToggleMipmapMode", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle Hardware Mipmapping"),
 		[](s32 pressed) {
-			if (pressed)
-				return;
-
-			static constexpr s32 CYCLE_COUNT = 4;
-			static constexpr std::array<const char*, CYCLE_COUNT> option_names = {
-				{"Automatic", "Off", "Basic (Generated)", "Full (PS2)"}};
-
-			const HWMipmapLevel new_level =
-				static_cast<HWMipmapLevel>(((static_cast<s32>(EmuConfig.GS.HWMipmap) + 2) % CYCLE_COUNT) - 1);
-			Host::AddKeyedOSDMessage("CycleMipmapMode",
-				fmt::format(TRANSLATE_FS("Hotkeys", "Hardware mipmapping set to '{}'."),
-					option_names[static_cast<s32>(new_level) + 1]),
-				Host::OSD_QUICK_DURATION);
-			EmuConfig.GS.HWMipmap = new_level;
-
-			MTGS::RunOnGSThread([new_level]() {
-				GSConfig.HWMipmap = new_level;
-				g_gs_renderer->PurgeTextureCache(true, false, true);
-				g_gs_device->PurgePool();
-			});
+			if (!pressed)
+			{
+				EmuConfig.GS.HWMipmap = !EmuConfig.GS.HWMipmap;
+				Host::AddKeyedOSDMessage("ToggleMipmapMode",
+					EmuConfig.GS.HWMipmap ?
+						TRANSLATE_STR("Hotkeys", "Hardware mipmapping is now enabled.") :
+						TRANSLATE_STR("Hotkeys", "Hardware mipmapping is now disabled."),
+					Host::OSD_INFO_DURATION);
+				MTGS::ApplySettings();
+			}
 		}},
 	{"CycleInterlaceMode", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle Deinterlace Mode"),
 		[](s32 pressed) {

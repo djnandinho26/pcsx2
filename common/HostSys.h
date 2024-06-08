@@ -123,12 +123,18 @@ namespace HostSys
 #else
 	void FlushInstructionCache(void* address, u32 size);
 #endif
-}
+} // namespace HostSys
 
 namespace PageFaultHandler
 {
-	bool HandlePageFault(uptr pc, uptr addr, bool is_write);
-	bool Install(Error* error);
+	enum class HandlerResult
+	{
+		ContinueExecution,
+		ExecuteNextHandler,
+	};
+
+	HandlerResult HandlePageFault(void* exception_pc, void* fault_address, bool is_write);
+	bool Install(Error* error = nullptr);
 } // namespace PageFaultHandler
 
 class SharedMemoryMappingArea
@@ -180,6 +186,9 @@ extern std::string GetOSVersionString();
 
 namespace Common
 {
+	/// Enables or disables the screen saver from starting.
+	bool InhibitScreensaver(bool inhibit);
+
 	/// Abstracts platform-specific code for asynchronously playing a sound.
 	/// On Windows, this will use PlaySound(). On Linux, it will shell out to aplay. On MacOS, it uses NSSound.
 	bool PlaySoundAsync(const char* path);

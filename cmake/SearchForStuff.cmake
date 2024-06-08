@@ -53,7 +53,6 @@ else()
 
 	if(UNIX AND NOT APPLE)
 		if(LINUX)
-			check_lib(AIO aio libaio.h)
 			check_lib(LIBUDEV libudev libudev.h)
 		endif()
 
@@ -70,7 +69,7 @@ else()
 			find_package(Wayland REQUIRED Egl)
 		endif()
 
-		find_package(Libbacktrace)
+		find_package(Libbacktrace REQUIRED)
 		find_package(PkgConfig REQUIRED)
 		pkg_check_modules(DBUS REQUIRED dbus-1)
 	endif()
@@ -124,7 +123,8 @@ disable_compiler_warnings_for_target(cubeb)
 disable_compiler_warnings_for_target(speex)
 
 # Find the Qt components that we need.
-find_package(Qt6 6.6.2 COMPONENTS CoreTools Core GuiTools Gui WidgetsTools Widgets LinguistTools REQUIRED)
+# Should be 6.7.1, but held back on 6.7.0 because of Flatpak.
+find_package(Qt6 6.7.0 COMPONENTS CoreTools Core GuiTools Gui WidgetsTools Widgets LinguistTools REQUIRED)
 
 if(WIN32)
   add_subdirectory(3rdparty/rainterface EXCLUDE_FROM_ALL)

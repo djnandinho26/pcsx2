@@ -74,7 +74,6 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	// Global Settings
 	//////////////////////////////////////////////////////////////////////////
 	SettingWidgetBinder::BindWidgetToStringSetting(sif, m_ui.adapter, "EmuCore/GS", "Adapter");
-	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.vsync, "EmuCore/GS", "VsyncEnable", 0);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.enableHWFixes, "EmuCore/GS", "UserHacks", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.spinGPUDuringReadbacks, "EmuCore/GS", "HWSpinGPUForReadbacks", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.spinCPUDuringReadbacks, "EmuCore/GS", "HWSpinCPUForReadbacks", false);
@@ -154,8 +153,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	SettingWidgetBinder::BindWidgetToEnumSetting(sif, m_ui.anisotropicFiltering, "EmuCore/GS", "MaxAnisotropy",
 		s_anisotropic_filtering_entries, s_anisotropic_filtering_values, "0");
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.dithering, "EmuCore/GS", "dithering_ps2", 2);
-	SettingWidgetBinder::BindWidgetToIntSetting(
-		sif, m_ui.mipmapping, "EmuCore/GS", "mipmap_hw", static_cast<int>(HWMipmapLevel::Automatic), -1);
+	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.mipmapping, "EmuCore/GS", "hw_mipmap", true);
 	SettingWidgetBinder::BindWidgetToIntSetting(
 		sif, m_ui.blending, "EmuCore/GS", "accurate_blending_unit", static_cast<int>(AccBlendLevel::Basic));
 	SettingWidgetBinder::BindWidgetToIntSetting(
@@ -204,6 +202,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.mergeSprite, "EmuCore/GS", "UserHacks_merge_pp_sprite", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.wildHack, "EmuCore/GS", "UserHacks_WildHack", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.nativePaletteDraw, "EmuCore/GS", "UserHacks_NativePaletteDraw", false);
+
 	//////////////////////////////////////////////////////////////////////////
 	// Texture Replacements
 	//////////////////////////////////////////////////////////////////////////
@@ -216,6 +215,10 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.precacheTextureReplacements, "EmuCore/GS", "PrecacheTextureReplacements", false);
 	SettingWidgetBinder::BindWidgetToFolderSetting(sif, m_ui.texturesDirectory, m_ui.texturesBrowse, m_ui.texturesOpen, m_ui.texturesReset,
 		"Folders", "Textures", Path::Combine(EmuFolders::DataRoot, "textures"));
+	connect(m_ui.dumpReplaceableTextures, &QCheckBox::checkStateChanged, this, &GraphicsSettingsWidget::onTextureDumpChanged);
+	connect(m_ui.loadTextureReplacements, &QCheckBox::checkStateChanged, this, &GraphicsSettingsWidget::onTextureReplacementChanged);
+	onTextureDumpChanged();
+	onTextureReplacementChanged();
 
 	//////////////////////////////////////////////////////////////////////////
 	// Advanced Settings
@@ -223,7 +226,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.useBlitSwapChain, "EmuCore/GS", "UseBlitSwapChain", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.useDebugDevice, "EmuCore/GS", "UseDebugDevice", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.skipPresentingDuplicateFrames, "EmuCore/GS", "SkipDuplicateFrames", false);
-	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.threadedPresentation, "EmuCore/GS", "DisableThreadedPresentation", false);
+	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.disableMailboxPresentation, "EmuCore/GS", "DisableMailboxPresentation", false);
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.exclusiveFullscreenControl, "EmuCore/GS", "ExclusiveFullscreenControl", -1, -1);
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.overrideTextureBarriers, "EmuCore/GS", "OverrideTextureBarriers", -1, -1);
 	SettingWidgetBinder::BindWidgetToIntSetting(
@@ -329,8 +332,8 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 		m_ui.gsDumpCompression = nullptr;
 		m_ui.exclusiveFullscreenControl = nullptr;
 		m_ui.useBlitSwapChain = nullptr;
+		m_ui.disableMailboxPresentation = nullptr;
 		m_ui.skipPresentingDuplicateFrames = nullptr;
-		m_ui.threadedPresentation = nullptr;
 		m_ui.overrideTextureBarriers = nullptr;
 		m_ui.disableFramebufferFetch = nullptr;
 		m_ui.disableShaderCache = nullptr;
@@ -418,10 +421,6 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 		dialog->registerWidgetHelp(m_ui.PCRTCAntiBlur, tr("Anti-Blur"), tr("Checked"),
 			tr("Enables internal Anti-Blur hacks. Less accurate to PS2 rendering but will make a lot of games look less blurry."));
 
-		dialog->registerWidgetHelp(m_ui.vsync, tr("VSync"), tr("Unchecked"),
-			tr("Enable this option to match PCSX2's refresh rate with your current monitor or screen. VSync is automatically disabled when "
-			   "it is not possible (eg. running at non-100% speed)."));
-
 		dialog->registerWidgetHelp(m_ui.integerScaling, tr("Integer Scaling"), tr("Unchecked"),
 			tr("Adds padding to the display area to ensure that the ratio between pixels on the host to pixels in the console is an "
 			   "integer number. May result in a sharper image in some 2D games."));
@@ -472,7 +471,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 			   "FMV resolution will remain unchanged, as the video files are pre-rendered."));
 
 		dialog->registerWidgetHelp(
-			m_ui.mipmapping, tr("Mipmapping"), tr("Automatic (Default)"), tr("Control the accuracy level of the mipmapping emulation."));
+			m_ui.mipmapping, tr("Mipmapping"), tr("Checked"), tr("Enables mipmapping, which some games require to render correctly."));
 
 		dialog->registerWidgetHelp(
 			m_ui.textureFiltering, tr("Texture Filtering"), tr("Bilinear (PS2)"), tr("Control the texture filtering of the emulation."));
@@ -486,8 +485,9 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 		dialog->registerWidgetHelp(m_ui.dithering, tr("Dithering"), tr("Unscaled (Default)"),
 			tr("Reduces banding between colors and improves the perceived color depth.<br> "
 			   "Off: Disables any dithering.<br> "
+			   "Scaled: Upscaling-aware / Highest dithering effect.<br> "
 			   "Unscaled: Native Dithering / Lowest dithering effect does not increase size of squares when upscaling.<br> "
-			   "Scaled: Upscaling-aware / Highest dithering effect."));
+			   "Force 32bit: Treat all draws as if they were 32bit to avoid banding and dithering."));
 
 		dialog->registerWidgetHelp(m_ui.blending, tr("Blending Accuracy"), tr("Basic (Recommended)"),
 			tr("Control the accuracy level of the GS blending unit emulation.<br> "
@@ -761,10 +761,9 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 			   "fluctuations when the CPU/GPU are near maximum utilization, but makes frame pacing more inconsistent and can increase "
 			   "input lag."));
 
-		dialog->registerWidgetHelp(m_ui.threadedPresentation, tr("Disable Threaded Presentation"), tr("Unchecked"),
-			tr("Presents frames on the main GS thread instead of a worker thread. Used for debugging frametime issues. "
-			   "Could reduce chance of missing a frame or reduce tearing at the expense of more erratic frame times. "
-			   "Only applies to the Vulkan renderer."));
+		dialog->registerWidgetHelp(m_ui.disableMailboxPresentation, tr("Disable Mailbox Presentation"), tr("Unchecked"),
+			tr("Forces the use of FIFO over Mailbox presentation, i.e. double buffering instead of triple buffering. "
+			   "Usually results in worse frame pacing."));
 
 		dialog->registerWidgetHelp(m_ui.useDebugDevice, tr("Enable Debug Device"), tr("Unchecked"),
 			tr("Enables API-level validation of graphics commands."));
@@ -852,6 +851,21 @@ void GraphicsSettingsWidget::onShadeBoostChanged()
 	m_ui.shadeBoostContrast->setEnabled(enabled);
 	m_ui.shadeBoostSaturation->setEnabled(enabled);
 }
+
+void GraphicsSettingsWidget::onTextureDumpChanged()
+{
+	const bool enabled = m_dialog->getEffectiveBoolValue("EmuCore/GS", "DumpReplaceableTextures", false);
+	m_ui.dumpReplaceableMipmaps->setEnabled(enabled);
+	m_ui.dumpTexturesWithFMVActive->setEnabled(enabled);
+}
+
+void GraphicsSettingsWidget::onTextureReplacementChanged()
+{
+	const bool enabled = m_dialog->getEffectiveBoolValue("EmuCore/GS", "LoadTextureReplacements", false);
+	m_ui.loadTextureReplacementsAsync->setEnabled(enabled);
+	m_ui.precacheTextureReplacements->setEnabled(enabled);
+}
+
 
 void GraphicsSettingsWidget::onCaptureContainerChanged()
 {

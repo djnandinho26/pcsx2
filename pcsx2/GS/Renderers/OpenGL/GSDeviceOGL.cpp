@@ -146,26 +146,20 @@ bool GSDeviceOGL::HasSurface() const
 	return m_window_info.type != WindowInfo::Type::Surfaceless;
 }
 
-void GSDeviceOGL::SetVSync(VsyncMode mode)
+void GSDeviceOGL::SetVSyncMode(GSVSyncMode mode, bool allow_present_throttle)
 {
-	if (m_vsync_mode == mode || m_gl_context->GetWindowInfo().type == WindowInfo::Type::Surfaceless)
+	m_allow_present_throttle = allow_present_throttle;
+
+	if (m_vsync_mode == mode)
 		return;
 
-	// Window framebuffer has to be bound to call SetSwapInterval.
-	GLint current_fbo = 0;
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fbo);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
-	if (mode != VsyncMode::Adaptive || !m_gl_context->SetSwapInterval(-1))
-		m_gl_context->SetSwapInterval(static_cast<s32>(mode != VsyncMode::Off));
-
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, current_fbo);
 	m_vsync_mode = mode;
+	SetSwapInterval();
 }
 
-bool GSDeviceOGL::Create()
+bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 {
-	if (!GSDevice::Create())
+	if (!GSDevice::Create(vsync_mode, allow_present_throttle))
 		return false;
 
 	// GL is a pain and needs the window super early to create the context.
@@ -777,8 +771,23 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 
 void GSDeviceOGL::SetSwapInterval()
 {
-	const int interval = ((m_vsync_mode == VsyncMode::Adaptive) ? -1 : ((m_vsync_mode == VsyncMode::On) ? 1 : 0));
-	m_gl_context->SetSwapInterval(interval);
+	if (m_window_info.type == WindowInfo::Type::Surfaceless)
+		return;
+
+	// OpenGL does not support mailbox, only effectively FIFO.
+	// Fall back to manual throttling in this case.
+	m_vsync_mode = (m_vsync_mode == GSVSyncMode::Mailbox) ? GSVSyncMode::FIFO : m_vsync_mode;
+
+	// Window framebuffer has to be bound to call SetSwapInterval.
+	const s32 interval = static_cast<s32>(m_vsync_mode == GSVSyncMode::FIFO);
+	GLint current_fbo = 0;
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fbo);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+	if (!m_gl_context->SetSwapInterval(interval))
+		WARNING_LOG("Failed to set swap interval to {}", interval);
+
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, current_fbo);
 }
 
 void GSDeviceOGL::DestroyResources()
@@ -868,9 +877,7 @@ bool GSDeviceOGL::UpdateWindow()
 	if (m_window_info.type != WindowInfo::Type::Surfaceless)
 	{
 		// reset vsync rate, since it (usually) gets lost
-		if (m_vsync_mode != VsyncMode::Adaptive || !m_gl_context->SetSwapInterval(-1))
-			m_gl_context->SetSwapInterval(static_cast<s32>(m_vsync_mode != VsyncMode::Off));
-
+		SetSwapInterval();
 		RenderBlankFrame();
 	}
 
@@ -1248,14 +1255,14 @@ GSTexture* GSDeviceOGL::InitPrimDateTexture(GSTexture* rt, const GSVector4i& are
 	return tex;
 }
 
-std::string GSDeviceOGL::GetShaderSource(const std::string_view& entry, GLenum type, const std::string_view& glsl_h_code, const std::string_view& macro_sel)
+std::string GSDeviceOGL::GetShaderSource(const std::string_view entry, GLenum type, const std::string_view glsl_h_code, const std::string_view macro_sel)
 {
 	std::string src = GenGlslHeader(entry, type, macro_sel);
 	src += glsl_h_code;
 	return src;
 }
 
-std::string GSDeviceOGL::GenGlslHeader(const std::string_view& entry, GLenum type, const std::string_view& macro)
+std::string GSDeviceOGL::GenGlslHeader(const std::string_view entry, GLenum type, const std::string_view macro)
 {
 	std::string header;
 

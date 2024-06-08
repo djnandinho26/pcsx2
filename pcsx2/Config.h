@@ -190,13 +190,6 @@ enum class SpeedHack
 	MaxCount,
 };
 
-enum class VsyncMode
-{
-	Off,
-	On,
-	Adaptive,
-};
-
 enum class AspectRatioType : u8
 {
 	Stretch,
@@ -254,6 +247,14 @@ enum class GSRendererType : s8
 	DX12 = 15,
 };
 
+enum class GSVSyncMode : u8
+{
+	Disabled,
+	FIFO,
+	Mailbox,
+	Count
+};
+
 enum class GSInterlaceMode : u8
 {
 	Automatic,
@@ -291,14 +292,6 @@ enum class TriFiltering : s8
 	Off,
 	PS2,
 	Forced,
-};
-
-enum class HWMipmapLevel : s8
-{
-	Automatic = -1,
-	Off,
-	Basic,
-	Full
 };
 
 enum class AccBlendLevel : u8
@@ -596,6 +589,9 @@ struct Pcsx2Config
 			struct
 			{
 				bool
+					SynchronousMTGS : 1,
+					VsyncEnable : 1,
+					DisableMailboxPresentation : 1,
 					PCRTCAntiBlur : 1,
 					DisableInterlaceOffset : 1,
 					PCRTCOffsets : 1,
@@ -606,7 +602,6 @@ struct Pcsx2Config
 					DisableShaderCache : 1,
 					DisableFramebufferFetch : 1,
 					DisableVertexShaderExpand : 1,
-					DisableThreadedPresentation : 1,
 					SkipDuplicateFrames : 1,
 					OsdShowMessages : 1,
 					OsdShowSpeed : 1,
@@ -618,15 +613,14 @@ struct Pcsx2Config
 					OsdShowIndicators : 1,
 					OsdShowSettings : 1,
 					OsdShowInputs : 1,
-					OsdShowFrameTimes : 1;
-
-				bool
+					OsdShowFrameTimes : 1,
 					HWSpinGPUForReadbacks : 1,
 					HWSpinCPUForReadbacks : 1,
 					GPUPaletteConversion : 1,
 					AutoFlushSW : 1,
 					PreloadFrameWithGSData : 1,
 					Mipmap : 1,
+					HWMipmap : 1,
 					ManualUserHacks : 1,
 					UserHacks_AlignSpriteX : 1,
 					UserHacks_CPUFBConversion : 1,
@@ -664,12 +658,6 @@ struct Pcsx2Config
 
 		int VsyncQueueSize = 2;
 
-		// forces the MTGS to execute tags/tasks in fully blocking/synchronous
-		// style. Useful for debugging potential bugs in the MTGS pipeline.
-		bool SynchronousMTGS = false;
-
-		VsyncMode VsyncEnable = VsyncMode::Off;
-
 		float FramerateNTSC = DEFAULT_FRAME_RATE_NTSC;
 		float FrameratePAL = DEFAULT_FRAME_RATE_PAL;
 
@@ -686,7 +674,6 @@ struct Pcsx2Config
 		GSRendererType Renderer = GSRendererType::Auto;
 		float UpscaleMultiplier = 1.0f;
 
-		HWMipmapLevel HWMipmap = HWMipmapLevel::Automatic;
 		AccBlendLevel AccurateBlendingUnit = AccBlendLevel::Basic;
 		BiFiltering TextureFiltering = BiFiltering::PS2;
 		TexturePreloadingLevel TexturePreloading = TexturePreloadingLevel::Full;
@@ -962,7 +949,7 @@ struct Pcsx2Config
 		bool operator!=(const SpeedhackOptions& right) const;
 
 		static const char* GetSpeedHackName(SpeedHack id);
-		static std::optional<SpeedHack> ParseSpeedHackName(const std::string_view& name);
+		static std::optional<SpeedHack> ParseSpeedHackName(const std::string_view name);
 	};
 
 	struct DebugOptions
@@ -992,6 +979,7 @@ struct Pcsx2Config
 	{
 		BITFIELD32()
 		bool SyncToHostRefreshRate : 1;
+		bool UseVSyncForTiming : 1;
 		BITFIELD_END
 
 		float NominalScalar{1.0f};
@@ -1123,7 +1111,6 @@ struct Pcsx2Config
 	bool
 		CdvdVerboseReads : 1, // enables cdvd read activity verbosely dumped to the console
 		CdvdDumpBlocks : 1, // enables cdvd block dumping
-		CdvdShareWrite : 1, // allows the iso to be modified while it's loaded
 		EnablePatches : 1, // enables patch detection and application
 		EnableCheats : 1, // enables cheat detection and application
 		EnablePINE : 1, // enables inter-process communication

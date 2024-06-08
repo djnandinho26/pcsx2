@@ -190,8 +190,10 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 		if (GSConfig.OsdShowCPU)
 		{
 			text.clear();
-			text.append_format("{:.2f}ms | {:.2f}ms | {:.2f}ms", PerformanceMetrics::GetMinimumFrameTime(),
-				PerformanceMetrics::GetAverageFrameTime(), PerformanceMetrics::GetMaximumFrameTime());
+			text.append_format("{} QF | {:.2f}ms | {:.2f}ms | {:.2f}ms",
+				MTGS::GetCurrentVsyncQueueSize() - 1, // we subtract one for the current frame
+				PerformanceMetrics::GetMinimumFrameTime(), PerformanceMetrics::GetAverageFrameTime(),
+				PerformanceMetrics::GetMaximumFrameTime());
 			DRAW_LINE(fixed_font, text.c_str(), IM_COL32(255, 255, 255, 255));
 
 			text.clear();
@@ -374,8 +376,8 @@ __ri void ImGuiManager::DrawSettingsOverlay(float scale, float margin, float spa
 		if (GSConfig.HWDownloadMode != GSHardwareDownloadMode::Enabled)
 			APPEND("DL={} ", static_cast<unsigned>(GSConfig.HWDownloadMode));
 
-		if (GSConfig.HWMipmap != HWMipmapLevel::Automatic)
-			APPEND("MM={} ", static_cast<unsigned>(GSConfig.HWMipmap));
+		if (GSConfig.HWMipmap)
+			APPEND("MM ");
 
 		// deliberately test global and print local here for auto values
 		if (EmuConfig.GS.TextureFiltering != BiFiltering::PS2)

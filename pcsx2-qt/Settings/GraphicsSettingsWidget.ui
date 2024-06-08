@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>720</width>
-    <height>463</height>
+    <height>552</height>
    </rect>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
@@ -224,6 +224,75 @@
          </item>
         </widget>
        </item>
+       <item row="5" column="0">
+        <widget class="QLabel" name="label_21">
+         <property name="text">
+          <string>Screenshot Size:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="5" column="1">
+        <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="1,0,0,0">
+         <item>
+          <widget class="QComboBox" name="screenshotSize">
+           <item>
+            <property name="text">
+             <string>Window Resolution (Aspect Corrected)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Internal Resolution (Aspect Corrected)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Internal Resolution (No Aspect Correction)</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="screenshotFormat">
+           <item>
+            <property name="text">
+             <string>PNG</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>JPEG</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>WebP</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_44">
+           <property name="text">
+            <string>Quality:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="screenshotQuality">
+           <property name="suffix">
+            <string>%</string>
+           </property>
+           <property name="minimum">
+            <number>1</number>
+           </property>
+           <property name="maximum">
+            <number>100</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
        <item row="6" column="0">
         <widget class="QLabel" name="label_24">
          <property name="text">
@@ -325,31 +394,10 @@
        </item>
        <item row="8" column="0" colspan="2">
         <layout class="QGridLayout" name="displayGridLayout">
-         <item row="3" column="0">
-          <widget class="QCheckBox" name="PCRTCOffsets">
-           <property name="text">
-            <string>Screen Offsets</string>
-           </property>
-          </widget>
-         </item>
          <item row="1" column="1">
           <widget class="QCheckBox" name="integerScaling">
            <property name="text">
             <string>Integer Scaling</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QCheckBox" name="vsync">
-           <property name="text">
-            <string>VSync</string>
-           </property>
-          </widget>
-         </item>
-         <item row="3" column="1">
-          <widget class="QCheckBox" name="PCRTCOverscan">
-           <property name="text">
-            <string>Show Overscan</string>
            </property>
           </widget>
          </item>
@@ -384,72 +432,17 @@
            </property>
           </widget>
          </item>
-        </layout>
-       </item>
-       <item row="5" column="0">
-        <widget class="QLabel" name="label_21">
-         <property name="text">
-          <string>Screenshot Size:</string>
-         </property>
-        </widget>
-       </item>
-       <item row="5" column="1">
-        <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="1,0,0,0">
-         <item>
-          <widget class="QComboBox" name="screenshotSize">
-           <item>
-            <property name="text">
-             <string>Window Resolution (Aspect Corrected)</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>Internal Resolution (Aspect Corrected)</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>Internal Resolution (No Aspect Correction)</string>
-            </property>
-           </item>
-          </widget>
-         </item>
-         <item>
-          <widget class="QComboBox" name="screenshotFormat">
-           <item>
-            <property name="text">
-             <string>PNG</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>JPEG</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>WebP</string>
-            </property>
-           </item>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="label_44">
+         <item row="2" column="0">
+          <widget class="QCheckBox" name="PCRTCOffsets">
            <property name="text">
-            <string>Quality:</string>
+            <string>Screen Offsets</string>
            </property>
           </widget>
          </item>
-         <item>
-          <widget class="QSpinBox" name="screenshotQuality">
-           <property name="suffix">
-            <string>%</string>
-           </property>
-           <property name="minimum">
-            <number>1</number>
-           </property>
-           <property name="maximum">
-            <number>100</number>
+         <item row="3" column="0">
+          <widget class="QCheckBox" name="PCRTCOverscan">
+           <property name="text">
+            <string>Show Overscan</string>
            </property>
           </widget>
          </item>
@@ -471,37 +464,6 @@
        </item>
        <item row="0" column="1">
         <widget class="QComboBox" name="upscaleMultiplier"/>
-       </item>
-       <item row="1" column="0">
-        <widget class="QLabel" name="label_6">
-         <property name="text">
-          <string>Mipmapping:</string>
-         </property>
-        </widget>
-       </item>
-       <item row="1" column="1">
-        <widget class="QComboBox" name="mipmapping">
-         <item>
-          <property name="text">
-           <string>Automatic (Default)</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>Off</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>Basic (Generated Mipmaps)</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>Full (PS2 Mipmaps)</string>
-          </property>
-         </item>
-        </widget>
        </item>
        <item row="2" column="0">
         <widget class="QLabel" name="label_13">
@@ -599,6 +561,11 @@
            <string>Unscaled (Default)</string>
           </property>
          </item>
+         <item>
+          <property name="text">
+           <string>Force 32bit</string>
+          </property>
+         </item>
         </widget>
        </item>
        <item row="6" column="0">
@@ -678,9 +645,9 @@
           </widget>
          </item>
          <item row="1" column="0">
-          <widget class="QCheckBox" name="enableHWFixes">
+          <widget class="QCheckBox" name="mipmapping">
            <property name="text">
-            <string>Manual Hardware Renderer Fixes</string>
+            <string>Mipmapping</string>
            </property>
           </widget>
          </item>
@@ -688,6 +655,13 @@
           <widget class="QCheckBox" name="spinCPUDuringReadbacks">
            <property name="text">
             <string>Spin CPU During Readbacks</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QCheckBox" name="enableHWFixes">
+           <property name="text">
+            <string>Manual Hardware Renderer Fixes</string>
            </property>
           </widget>
          </item>
@@ -719,7 +693,7 @@
           </sizepolicy>
          </property>
          <property name="layoutDirection">
-          <enum>Qt::LeftToRight</enum>
+          <enum>Qt::LayoutDirection::LeftToRight</enum>
          </property>
          <item>
           <property name="text">
@@ -1247,6 +1221,57 @@
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_4">
        <item>
+        <widget class="QGroupBox" name="groupBox">
+         <property name="title">
+          <string>Options</string>
+         </property>
+         <layout class="QGridLayout" name="gridLayout_8">
+          <item row="3" column="0">
+           <widget class="QCheckBox" name="precacheTextureReplacements">
+            <property name="text">
+             <string>Precache Textures</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QCheckBox" name="loadTextureReplacementsAsync">
+            <property name="text">
+             <string>Asynchronous Texture Loading</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QCheckBox" name="loadTextureReplacements">
+            <property name="text">
+             <string>Load Textures</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QCheckBox" name="dumpReplaceableTextures">
+            <property name="text">
+             <string>Dump Textures</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QCheckBox" name="dumpReplaceableMipmaps">
+            <property name="text">
+             <string>Dump Mipmaps</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QCheckBox" name="dumpTexturesWithFMVActive">
+            <property name="text">
+             <string>Dump FMV Textures</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
         <widget class="QGroupBox" name="groupBox_6">
          <property name="title">
           <string>Search Directory</string>
@@ -1287,60 +1312,9 @@
         </widget>
        </item>
        <item>
-        <widget class="QGroupBox" name="groupBox">
-         <property name="title">
-          <string>Options</string>
-         </property>
-         <layout class="QGridLayout" name="gridLayout_8">
-          <item row="0" column="0">
-           <widget class="QCheckBox" name="dumpReplaceableTextures">
-            <property name="text">
-             <string>Dump Textures</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="1">
-           <widget class="QCheckBox" name="dumpReplaceableMipmaps">
-            <property name="text">
-             <string>Dump Mipmaps</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="0">
-           <widget class="QCheckBox" name="dumpTexturesWithFMVActive">
-            <property name="text">
-             <string>Dump FMV Textures</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="1">
-           <widget class="QCheckBox" name="loadTextureReplacementsAsync">
-            <property name="text">
-             <string>Asynchronous Texture Loading</string>
-            </property>
-           </widget>
-          </item>
-          <item row="2" column="0">
-           <widget class="QCheckBox" name="loadTextureReplacements">
-            <property name="text">
-             <string>Load Textures</string>
-            </property>
-           </widget>
-          </item>
-          <item row="2" column="1">
-           <widget class="QCheckBox" name="precacheTextureReplacements">
-            <property name="text">
-             <string>Precache Textures</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </widget>
-       </item>
-       <item>
         <spacer name="verticalSpacer_4">
          <property name="orientation">
-          <enum>Qt::Vertical</enum>
+          <enum>Qt::Orientation::Vertical</enum>
          </property>
          <property name="sizeHint" stdset="0">
           <size>
@@ -1496,7 +1470,7 @@
             <item>
              <spacer name="horizontalSpacer">
               <property name="orientation">
-               <enum>Qt::Horizontal</enum>
+               <enum>Qt::Orientation::Horizontal</enum>
               </property>
               <property name="sizeHint" stdset="0">
                <size>
@@ -1565,7 +1539,7 @@
        <item>
         <spacer name="verticalSpacer_5">
          <property name="orientation">
-          <enum>Qt::Vertical</enum>
+          <enum>Qt::Orientation::Vertical</enum>
          </property>
          <property name="sizeHint" stdset="0">
           <size>
@@ -1702,7 +1676,7 @@
        <item>
         <spacer name="verticalSpacer_3">
          <property name="orientation">
-          <enum>Qt::Vertical</enum>
+          <enum>Qt::Orientation::Vertical</enum>
          </property>
          <property name="sizeHint" stdset="0">
           <size>
@@ -1719,43 +1693,6 @@
        <string>Recording</string>
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_6">
-       <item>
-        <widget class="QGroupBox" name="videoDumpDirectory">
-         <property name="title">
-          <string>Video Dumping Directory</string>
-         </property>
-         <layout class="QVBoxLayout" name="verticalLayout_7">
-          <item>
-           <layout class="QHBoxLayout" name="horizontalLayout_8">
-            <item>
-             <widget class="QLineEdit" name="videoDumpingDirectory"/>
-            </item>
-            <item>
-             <widget class="QPushButton" name="videoDumpingDirectoryBrowse">
-              <property name="text">
-               <string>Browse...</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="videoDumpingDirectoryOpen">
-              <property name="text">
-               <string>Open...</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="videoDumpingDirectoryReset">
-              <property name="text">
-               <string>Reset</string>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-         </layout>
-        </widget>
-       </item>
        <item>
         <widget class="QGroupBox" name="groupBox_2">
          <property name="title">
@@ -1979,9 +1916,46 @@
         </widget>
        </item>
        <item>
+        <widget class="QGroupBox" name="videoDumpDirectory">
+         <property name="title">
+          <string>Video Dumping Directory</string>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_7">
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_8">
+            <item>
+             <widget class="QLineEdit" name="videoDumpingDirectory"/>
+            </item>
+            <item>
+             <widget class="QPushButton" name="videoDumpingDirectoryBrowse">
+              <property name="text">
+               <string>Browse...</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="videoDumpingDirectoryOpen">
+              <property name="text">
+               <string>Open...</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="videoDumpingDirectoryReset">
+              <property name="text">
+               <string>Reset</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
         <spacer name="verticalSpacer_6">
          <property name="orientation">
-          <enum>Qt::Vertical</enum>
+          <enum>Qt::Orientation::Vertical</enum>
          </property>
          <property name="sizeHint" stdset="0">
           <size>
@@ -2078,9 +2052,9 @@
              </widget>
             </item>
             <item row="1" column="0">
-             <widget class="QCheckBox" name="threadedPresentation">
+             <widget class="QCheckBox" name="disableMailboxPresentation">
               <property name="text">
-               <string>Disable Threaded Presentation</string>
+               <string>Disable Mailbox Presentation</string>
               </property>
              </widget>
             </item>
@@ -2185,7 +2159,7 @@
        <item>
         <spacer name="verticalSpacer_2">
          <property name="orientation">
-          <enum>Qt::Vertical</enum>
+          <enum>Qt::Orientation::Vertical</enum>
          </property>
          <property name="sizeHint" stdset="0">
           <size>
@@ -2202,7 +2176,7 @@
    <item>
     <spacer name="verticalSpacer">
      <property name="orientation">
-      <enum>Qt::Vertical</enum>
+      <enum>Qt::Orientation::Vertical</enum>
      </property>
      <property name="sizeHint" stdset="0">
       <size>

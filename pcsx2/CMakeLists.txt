@@ -91,7 +91,6 @@ set(pcsx2Sources
 	MMI.cpp
 	MTGS.cpp
 	MTVU.cpp
-	MultipartFileReader.cpp
 	Patch.cpp
 	Pcsx2Config.cpp
 	PerformanceMetrics.cpp
@@ -141,7 +140,6 @@ set(pcsx2Sources
 # Main pcsx2 header
 set(pcsx2Headers
 	Achievements.h
-	AsyncFileReader.h
 	Cache.h
 	Common.h
 	Config.h
@@ -212,12 +210,11 @@ set(pcsx2CDVDSources
 	CDVD/CDVDdiscReader.cpp
 	CDVD/CDVDisoReader.cpp
 	CDVD/CDVDdiscThread.cpp
+	CDVD/FlatFileReader.cpp
 	CDVD/InputIsoFile.cpp
 	CDVD/IsoHasher.cpp
 	CDVD/IsoReader.cpp
 	CDVD/OutputIsoFile.cpp
-	CDVD/ChunksCache.cpp
-	CDVD/CompressedFileReader.cpp
 	CDVD/ChdFileReader.cpp
 	CDVD/CsoFileReader.cpp
 	CDVD/GzippedFileReader.cpp
@@ -226,15 +223,15 @@ set(pcsx2CDVDSources
 
 # CDVD headers
 set(pcsx2CDVDHeaders
+	CDVD/BlockdumpFileReader.h
 	CDVD/Ps1CD.h
 	CDVD/CDVDcommon.h
 	CDVD/CDVD.h
 	CDVD/CDVD_internal.h
 	CDVD/CDVDdiscReader.h
-	CDVD/ChunksCache.h
-	CDVD/CompressedFileReader.h
 	CDVD/ChdFileReader.h
 	CDVD/CsoFileReader.h
+	CDVD/FlatFileReader.h
 	CDVD/GzippedFileReader.h
 	CDVD/ThreadedFileReader.h
 	CDVD/IsoFileFormats.h
@@ -612,7 +609,8 @@ if(USE_VULKAN)
 		GS/Renderers/Vulkan/VKStreamBuffer.h
 		GS/Renderers/Vulkan/VKSwapChain.h
 	)
-	target_link_libraries(PCSX2_FLAGS INTERFACE Vulkan-Headers Shaderc::shaderc_shared)
+	target_link_libraries(PCSX2_FLAGS INTERFACE Vulkan-Headers)
+	target_include_directories(PCSX2_FLAGS INTERFACE ${SHADERC_INCLUDE_DIR})
 endif()
 
 set(pcsx2GSMetalShaders
@@ -852,19 +850,16 @@ endif()
 set(pcsx2LinuxSources
 	CDVD/Linux/DriveUtility.cpp
 	CDVD/Linux/IOCtlSrc.cpp
-	Linux/LnxFlatFileReader.cpp
 	)
 
 set(pcsx2OSXSources
 	CDVD/Darwin/DriveUtility.cpp
 	CDVD/Darwin/IOCtlSrc.cpp
-	Darwin/DarwinFlatFileReader.cpp
 	)
 
 set(pcsx2FreeBSDSources
 	CDVD/Darwin/DriveUtility.cpp
 	CDVD/Darwin/IOCtlSrc.cpp
-	Darwin/DarwinFlatFileReader.cpp
 	)
 
 # Linux headers
@@ -931,7 +926,6 @@ set(pcsx2RecordingHeaders
 set(pcsx2WindowsSources
 	CDVD/Windows/DriveUtility.cpp
 	CDVD/Windows/IOCtlSrc.cpp
-	windows/FlatFileReaderWindows.cpp
 	windows/Optimus.cpp
 )
 
@@ -1065,7 +1059,6 @@ if(LINUX)
 		)
 
 	target_link_libraries(PCSX2_FLAGS INTERFACE
-		PkgConfig::AIO
 		PkgConfig::LIBUDEV
 	)
 endif()
@@ -1290,9 +1283,15 @@ function(setup_main_executable target)
 			MACOSX_BUNDLE true
 			MACOSX_BUNDLE_INFO_PLIST "${PCSX2_SOURCE_DIR}/Resources/Info.plist.in"
 			OUTPUT_NAME PCSX2
+			# Fixes complaints when Xcode tries to sign for running locally about MoltenVK not being signed
+			XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS --deep
 		)
 
 		pcsx2_resource(${target} ${PCSX2_SOURCE_DIR}/Resources/PCSX2.icns ${PCSX2_SOURCE_DIR}/Resources)
+
+		# Copy shaderc into the bundle
+		target_sources(${target} PRIVATE "${SHADERC_LIBRARY}")
+		set_source_files_properties("${SHADERC_LIBRARY}" PROPERTIES MACOSX_PACKAGE_LOCATION Frameworks)
 
 		# Copy MoltenVK into the bundle
 		unset(MOLTENVK_PATH CACHE)

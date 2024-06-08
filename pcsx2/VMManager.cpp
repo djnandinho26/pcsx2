@@ -125,8 +125,9 @@ namespace VMManager
 		s32 slot_for_message);
 
 	static void LoadSettings();
-	static void LoadCoreSettings(SettingsInterface* si);
+	static void LoadCoreSettings(SettingsInterface& si);
 	static void ApplyCoreSettings();
+	static void LoadInputBindings(SettingsInterface& si, std::unique_lock<std::mutex>& lock);
 	static void UpdateInhibitScreensaver(bool allow);
 	static void AccumulateSessionPlaytime();
 	static void ResetResumeTimestamp();
@@ -135,7 +136,6 @@ namespace VMManager
 
 	static float GetTargetSpeedForLimiterMode(LimiterModeType mode);
 	static void ResetFrameLimiter();
-	static double AdjustToHostRefreshRate(float frame_rate, float target_speed);
 
 	static void SetTimerResolutionIncreased(bool enabled);
 	static void SetHardwareDependentDefaultSettings(SettingsInterface& si);
@@ -185,6 +185,7 @@ static LimiterModeType s_limiter_mode = LimiterModeType::Nominal;
 static s64 s_limiter_ticks_per_frame = 0;
 static u64 s_limiter_frame_start = 0;
 static float s_target_speed = 0.0f;
+static bool s_target_speed_can_sync_to_host = false;
 static bool s_target_speed_synced_to_host = false;
 static bool s_use_vsync_for_timing = false;
 
@@ -578,11 +579,11 @@ void VMManager::LoadSettings()
 
 	std::unique_lock<std::mutex> lock = Host::GetSettingsLock();
 	SettingsInterface* si = Host::GetSettingsInterface();
-	LoadCoreSettings(si);
+	LoadCoreSettings(*si);
 	Pad::LoadConfig(*si);
 	Host::LoadSettings(*si, lock);
 	InputManager::ReloadSources(*si, lock);
-	InputManager::ReloadBindings(*si, *Host::GetSettingsInterfaceForBindings());
+	LoadInputBindings(*si, lock);
 	UpdateLoggingSettings(*si);
 
 	if (HasValidOrInitializingVM())
@@ -592,9 +593,33 @@ void VMManager::LoadSettings()
 	}
 }
 
-void VMManager::LoadCoreSettings(SettingsInterface* si)
+void VMManager::ReloadInputSources()
 {
-	SettingsLoadWrapper slw(*si);
+	FPControlRegisterBackup fpcr_backup(FPControlRegister::GetDefault());
+	std::unique_lock<std::mutex> lock = Host::GetSettingsLock();
+	SettingsInterface* si = Host::GetSettingsInterface();
+	InputManager::ReloadSources(*si, lock);
+
+	// skip loading bindings if we're not running, since it'll get done on startup anyway
+	if (HasValidVM())
+		LoadInputBindings(*si, lock);
+}
+
+void VMManager::ReloadInputBindings()
+{
+	// skip loading bindings if we're not running, since it'll get done on startup anyway
+	if (!HasValidVM())
+		return;
+
+	FPControlRegisterBackup fpcr_backup(FPControlRegister::GetDefault());
+	std::unique_lock<std::mutex> lock = Host::GetSettingsLock();
+	SettingsInterface* si = Host::GetSettingsInterface();
+	LoadInputBindings(*si, lock);
+}
+
+void VMManager::LoadCoreSettings(SettingsInterface& si)
+{
+	SettingsLoadWrapper slw(si);
 	EmuConfig.LoadSave(slw);
 	Patch::ApplyPatchSettingOverrides();
 
@@ -608,6 +633,35 @@ void VMManager::LoadCoreSettings(SettingsInterface* si)
 	// Force MTVU off when playing back GS dumps, it doesn't get used.
 	if (GSDumpReplayer::IsReplayingDump())
 		EmuConfig.Speedhacks.vuThread = false;
+}
+
+void VMManager::LoadInputBindings(SettingsInterface& si, std::unique_lock<std::mutex>& lock)
+{
+	// Hotkeys use the base configuration, except if the custom hotkeys option is enabled.
+	if (SettingsInterface* isi = Host::Internal::GetInputSettingsLayer())
+	{
+		const bool use_profile_hotkeys = isi->GetBoolValue("Pad", "UseProfileHotkeyBindings", false);
+		if (use_profile_hotkeys)
+		{
+			InputManager::ReloadBindings(si, *isi, *isi);
+		}
+		else
+		{
+			// Temporarily disable the input profile layer, so it doesn't take precedence.
+			Host::Internal::SetInputSettingsLayer(nullptr, lock);
+			InputManager::ReloadBindings(si, *isi, si);
+			Host::Internal::SetInputSettingsLayer(s_input_settings_interface.get(), lock);
+		}
+	}
+	else if (SettingsInterface* gsi = Host::Internal::GetGameSettingsLayer();
+			 gsi && gsi->GetBoolValue("Pad", "UseGameSettingsForController", false))
+	{
+		InputManager::ReloadBindings(si, *gsi, si);
+	}
+	else
+	{
+		InputManager::ReloadBindings(si, si, si);
+	}
 }
 
 void VMManager::ApplyGameFixes()
@@ -678,7 +732,7 @@ void VMManager::ApplyCoreSettings()
 	{
 		FPControlRegisterBackup fpcr_backup(FPControlRegister::GetDefault());
 		std::unique_lock<std::mutex> lock = Host::GetSettingsLock();
-		LoadCoreSettings(Host::GetSettingsInterface());
+		LoadCoreSettings(*Host::GetSettingsInterface());
 		WarnAboutUnsafeSettings();
 		ApplyGameFixes();
 	}
@@ -697,7 +751,7 @@ bool VMManager::ReloadGameSettings()
 	return true;
 }
 
-std::string VMManager::GetGameSettingsPath(const std::string_view& game_serial, u32 game_crc)
+std::string VMManager::GetGameSettingsPath(const std::string_view game_serial, u32 game_crc)
 {
 	std::string sanitized_serial(Path::SanitizeFileName(game_serial));
 
@@ -728,12 +782,12 @@ std::string VMManager::GetDiscOverrideFromGameSettings(const std::string& elf_pa
 	return iso_path;
 }
 
-std::string VMManager::GetInputProfilePath(const std::string_view& name)
+std::string VMManager::GetInputProfilePath(const std::string_view name)
 {
 	return Path::Combine(EmuFolders::InputProfiles, fmt::format("{}.ini", name));
 }
 
-std::string VMManager::GetDebuggerSettingsFilePath(const std::string_view& game_serial, u32 game_crc)
+std::string VMManager::GetDebuggerSettingsFilePath(const std::string_view game_serial, u32 game_crc)
 {
 	std::string path;
 	if (!game_serial.empty() && game_crc != 0)
@@ -879,53 +933,42 @@ bool VMManager::UpdateGameSettingsLayer()
 	}
 
 	std::string input_profile_name;
-	bool use_game_settings_for_controller = false;
 	if (new_interface)
 	{
-		new_interface->GetBoolValue("Pad", "UseGameSettingsForController", &use_game_settings_for_controller);
-		if (!use_game_settings_for_controller)
+		if (!new_interface->GetBoolValue("Pad", "UseGameSettingsForController", false))
 			new_interface->GetStringValue("EmuCore", "InputProfileName", &input_profile_name);
 	}
 
 	if (!s_game_settings_interface && !new_interface && s_input_profile_name == input_profile_name)
 		return false;
 
-	Host::Internal::SetGameSettingsLayer(new_interface.get());
+	auto lock = Host::GetSettingsLock();
+	Host::Internal::SetGameSettingsLayer(new_interface.get(), lock);
 	s_game_settings_interface = std::move(new_interface);
 
 	std::unique_ptr<INISettingsInterface> input_interface;
-	if (!use_game_settings_for_controller)
+	if (!input_profile_name.empty())
 	{
-		if (!input_profile_name.empty())
+		const std::string filename(GetInputProfilePath(input_profile_name));
+		if (FileSystem::FileExists(filename.c_str()))
 		{
-			const std::string filename(GetInputProfilePath(input_profile_name));
-			if (FileSystem::FileExists(filename.c_str()))
+			Console.WriteLn("Loading input profile from '%s'...", filename.c_str());
+			input_interface = std::make_unique<INISettingsInterface>(std::move(filename));
+			if (!input_interface->Load())
 			{
-				Console.WriteLn("Loading input profile from '%s'...", filename.c_str());
-				input_interface = std::make_unique<INISettingsInterface>(std::move(filename));
-				if (!input_interface->Load())
-				{
-					Console.Error("Failed to parse input profile ini '%s'", input_interface->GetFileName().c_str());
-					input_interface.reset();
-					input_profile_name = {};
-				}
-			}
-			else
-			{
-				DevCon.WriteLn("No game settings found (tried '%s')", filename.c_str());
+				Console.Error("Failed to parse input profile ini '%s'", input_interface->GetFileName().c_str());
+				input_interface.reset();
 				input_profile_name = {};
 			}
 		}
-
-		Host::Internal::SetInputSettingsLayer(
-			input_interface ? input_interface.get() : Host::Internal::GetBaseSettingsLayer());
-	}
-	else
-	{
-		// using game settings for bindings too
-		Host::Internal::SetInputSettingsLayer(s_game_settings_interface.get());
+		else
+		{
+			DevCon.WriteLn("No game settings found (tried '%s')", filename.c_str());
+			input_profile_name = {};
+		}
 	}
 
+	Host::Internal::SetInputSettingsLayer(input_interface.get(), lock);
 	s_input_settings_interface = std::move(input_interface);
 	s_input_profile_name = std::move(input_profile_name);
 	return true;
@@ -1725,7 +1768,7 @@ bool VMManager::DoLoadState(const char* filename)
 	Error error;
 	if (!SaveState_UnzipFromDisk(filename, &error))
 	{
-		Host::ReportErrorAsync(TRANSLATE_SV("VMManager","Failed to load save state"), error.GetDescription());
+		Host::ReportErrorAsync(TRANSLATE_SV("VMManager", "Failed to load save state"), error.GetDescription());
 		return false;
 	}
 
@@ -1983,34 +2026,6 @@ float VMManager::GetTargetSpeed()
 	return s_target_speed;
 }
 
-double VMManager::AdjustToHostRefreshRate(float frame_rate, float target_speed)
-{
-	if (!EmuConfig.EmulationSpeed.SyncToHostRefreshRate || target_speed != 1.0f)
-	{
-		s_target_speed_synced_to_host = false;
-		s_use_vsync_for_timing = false;
-		return target_speed;
-	}
-
-	float host_refresh_rate;
-	if (!GSGetHostRefreshRate(&host_refresh_rate))
-	{
-		Console.Warning("Cannot sync to host refresh since the query failed.");
-		s_target_speed_synced_to_host = false;
-		s_use_vsync_for_timing = false;
-		return target_speed;
-	}
-
-	const float ratio = host_refresh_rate / frame_rate;
-	const bool syncing_to_host = (ratio >= 0.95f && ratio <= 1.05f);
-	s_target_speed_synced_to_host = syncing_to_host;
-	s_use_vsync_for_timing = (syncing_to_host && !EmuConfig.GS.SkipDuplicateFrames && EmuConfig.GS.VsyncEnable != VsyncMode::Off);
-	Console.WriteLn("Refresh rate: Host=%fhz Guest=%fhz Ratio=%f - %s %s", host_refresh_rate, frame_rate, ratio,
-		syncing_to_host ? "can sync" : "can't sync", s_use_vsync_for_timing ? "and using vsync for pacing" : "and using sleep for pacing");
-
-	return syncing_to_host ? ratio : target_speed;
-}
-
 float VMManager::GetTargetSpeedForLimiterMode(LimiterModeType mode)
 {
 	if (EmuConfig.EnableFastBootFastForward && VMManager::Internal::IsFastBootInProgress())
@@ -2038,7 +2053,37 @@ float VMManager::GetTargetSpeedForLimiterMode(LimiterModeType mode)
 void VMManager::UpdateTargetSpeed()
 {
 	const float frame_rate = GetFrameRate();
-	const float target_speed = AdjustToHostRefreshRate(frame_rate, GetTargetSpeedForLimiterMode(s_limiter_mode));
+	float target_speed = GetTargetSpeedForLimiterMode(s_limiter_mode);
+
+	s_target_speed_can_sync_to_host = false;
+	s_target_speed_synced_to_host = false;
+	s_use_vsync_for_timing = false;
+
+	if (EmuConfig.EmulationSpeed.SyncToHostRefreshRate)
+	{
+		// TODO: This is accessing GS thread state.. I _think_ it should be okay, but I still hate it.
+		// We can at least avoid the query in the first place if we're not using sync to host.
+		if (const std::optional<float> host_refresh_rate = GSGetHostRefreshRate(); host_refresh_rate.has_value())
+		{
+			const float host_to_guest_ratio = host_refresh_rate.value() / frame_rate;
+
+			s_target_speed_can_sync_to_host = (host_to_guest_ratio >= 0.95f && host_to_guest_ratio <= 1.05f);
+			s_target_speed_synced_to_host = (s_target_speed_can_sync_to_host && target_speed == 1.0f);
+			target_speed = s_target_speed_synced_to_host ? host_to_guest_ratio : target_speed;
+			s_use_vsync_for_timing = (s_target_speed_synced_to_host && !EmuConfig.GS.SkipDuplicateFrames && EmuConfig.GS.VsyncEnable &&
+									  EmuConfig.EmulationSpeed.UseVSyncForTiming);
+
+			Console.WriteLn("Refresh rate: Host=%fhz Guest=%fhz Ratio=%f - %s %s",
+				host_refresh_rate.value(), frame_rate, host_to_guest_ratio,
+				s_target_speed_can_sync_to_host ? "can sync" : "can't sync",
+				s_use_vsync_for_timing ? "and using vsync for pacing" : "and using sleep for pacing");
+		}
+		else
+		{
+			ERROR_LOG("Failed to query host refresh rate.");
+		}
+	}
+
 	const float target_frame_rate = frame_rate * target_speed;
 
 	s_limiter_ticks_per_frame =
@@ -2219,28 +2264,28 @@ bool VMManager::ChangeGSDump(const std::string& path)
 	return true;
 }
 
-bool VMManager::IsElfFileName(const std::string_view& path)
+bool VMManager::IsElfFileName(const std::string_view path)
 {
 	return StringUtil::EndsWithNoCase(path, ".elf");
 }
 
-bool VMManager::IsBlockDumpFileName(const std::string_view& path)
+bool VMManager::IsBlockDumpFileName(const std::string_view path)
 {
 	return StringUtil::EndsWithNoCase(path, ".dump");
 }
 
-bool VMManager::IsGSDumpFileName(const std::string_view& path)
+bool VMManager::IsGSDumpFileName(const std::string_view path)
 {
 	return (StringUtil::EndsWithNoCase(path, ".gs") || StringUtil::EndsWithNoCase(path, ".gs.xz") ||
 			StringUtil::EndsWithNoCase(path, ".gs.zst"));
 }
 
-bool VMManager::IsSaveStateFileName(const std::string_view& path)
+bool VMManager::IsSaveStateFileName(const std::string_view path)
 {
 	return StringUtil::EndsWithNoCase(path, ".p2s");
 }
 
-bool VMManager::IsDiscFileName(const std::string_view& path)
+bool VMManager::IsDiscFileName(const std::string_view path)
 {
 	static const char* extensions[] = {".iso", ".bin", ".img", ".mdf", ".gz", ".cso", ".zso", ".chd"};
 
@@ -2253,7 +2298,7 @@ bool VMManager::IsDiscFileName(const std::string_view& path)
 	return false;
 }
 
-bool VMManager::IsLoadableFileName(const std::string_view& path)
+bool VMManager::IsLoadableFileName(const std::string_view path)
 {
 	return IsDiscFileName(path) || IsElfFileName(path) || IsGSDumpFileName(path) || IsBlockDumpFileName(path);
 }
@@ -2285,7 +2330,8 @@ inline void LogUserPowerPlan()
 		"  Power Profile    = '{}'\n"
 		"  Power States (min/max)\n"
 		"    AC             = {}% / {}%\n"
-		"    Battery        = {}% / {}%\n", friendlyName.c_str(), acMin, acMax, dcMin, dcMax);
+		"    Battery        = {}% / {}%\n",
+		friendlyName.c_str(), acMin, acMax, dcMin, dcMax);
 }
 #endif
 
@@ -2546,16 +2592,33 @@ void VMManager::SetPaused(bool paused)
 	SetState(paused ? VMState::Paused : VMState::Running);
 }
 
-VsyncMode Host::GetEffectiveVSyncMode()
+GSVSyncMode VMManager::GetEffectiveVSyncMode()
 {
-	const bool has_vm = VMManager::GetState() != VMState::Shutdown;
+	// Vsync off => always disabled.
+	if (!EmuConfig.GS.VsyncEnable)
+		return GSVSyncMode::Disabled;
 
-	// Force vsync off when not running at 100% speed.
-	if (has_vm && (s_target_speed != 1.0f && !s_use_vsync_for_timing))
-		return VsyncMode::Off;
+	// If there's no VM, or we're using vsync for timing, then we always use double-buffered (blocking).
+	// Try to keep the same present mode whether we're running or not, since it'll avoid flicker.
+	const VMState state = GetState();
+	const bool valid_vm = (state != VMState::Shutdown && state != VMState::Stopping);
+	if (s_target_speed_can_sync_to_host || (!valid_vm && EmuConfig.EmulationSpeed.SyncToHostRefreshRate) ||
+		EmuConfig.GS.DisableMailboxPresentation)
+	{
+		return GSVSyncMode::FIFO;
+	}
 
-	// Otherwise use the config setting.
-	return EmuConfig.GS.VsyncEnable;
+	// For PAL games, we always want to triple buffer, because otherwise we'll be tearing.
+	// Or for when we aren't using sync-to-host-refresh, to avoid dropping frames.
+	// Allow present skipping when running outside of normal speed, if mailbox isn't supported.
+	return GSVSyncMode::Mailbox;
+}
+
+bool VMManager::ShouldAllowPresentThrottle()
+{
+	const VMState state = GetState();
+	const bool valid_vm = (state != VMState::Shutdown && state != VMState::Stopping);
+	return (!valid_vm || (!s_target_speed_synced_to_host && s_target_speed != 1.0f));
 }
 
 bool VMManager::Internal::IsFastBootInProgress()
@@ -2735,10 +2798,12 @@ void VMManager::CheckForGSConfigChanges(const Pcsx2Config& old_config)
 		UpdateVSyncRate(false);
 		UpdateTargetSpeed();
 	}
-	else if (EmuConfig.GS.VsyncEnable != old_config.GS.VsyncEnable)
+	else if (EmuConfig.GS.VsyncEnable != old_config.GS.VsyncEnable ||
+			 EmuConfig.GS.DisableMailboxPresentation != old_config.GS.DisableMailboxPresentation)
 	{
 		// Still need to update target speed, because of sync-to-host-refresh.
 		UpdateTargetSpeed();
+		MTGS::UpdateVSyncMode();
 	}
 
 	MTGS::ApplySettings();
@@ -2955,7 +3020,7 @@ void VMManager::WarnAboutUnsafeSettings()
 		return;
 
 	std::string messages;
-	auto append = [&messages](const char* icon, const std::string_view& msg) {
+	auto append = [&messages](const char* icon, const std::string_view msg) {
 		messages += icon;
 		messages += ' ';
 		messages += msg;
@@ -2971,10 +3036,10 @@ void VMManager::WarnAboutUnsafeSettings()
 	}
 	if (EmuConfig.GS.UpscaleMultiplier < 1.0f)
 		append(ICON_FA_TV, TRANSLATE_SV("VMManager", "Upscale multiplier is below native, this will break rendering."));
-	if (EmuConfig.GS.HWMipmap != HWMipmapLevel::Automatic)
+	if (!EmuConfig.GS.HWMipmap)
 	{
 		append(ICON_FA_IMAGES,
-			TRANSLATE_SV("VMManager", "Mipmapping is not set to automatic. This may break rendering in some games."));
+			TRANSLATE_SV("VMManager", "Mipmapping is disabled. This may break rendering in some games."));
 	}
 	if (EmuConfig.GS.TextureFiltering != BiFiltering::PS2)
 	{
@@ -3147,13 +3212,9 @@ void VMManager::UpdateInhibitScreensaver(bool inhibit)
 	if (s_screensaver_inhibited == inhibit)
 		return;
 
-	WindowInfo wi;
-	auto top_level_wi = Host::GetTopLevelWindowInfo();
-	if (top_level_wi.has_value())
-		wi = top_level_wi.value();
-
-	s_screensaver_inhibited = inhibit;
-	if (!WindowInfo::InhibitScreensaver(wi, inhibit) && inhibit)
+	if (Common::InhibitScreensaver(inhibit))
+		s_screensaver_inhibited = inhibit;
+	else if (inhibit)
 		Console.Warning("Failed to inhibit screen saver.");
 }
 

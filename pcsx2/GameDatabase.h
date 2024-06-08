@@ -53,6 +53,7 @@ namespace GameDatabaseSchema
 		TextureInsideRT,
 		AlignSprite,
 		MergeSprite,
+		Mipmap,
 		WildArmsHack,
 		BilinearUpscale,
 		NativePaletteDraw,
@@ -61,7 +62,6 @@ namespace GameDatabaseSchema
 		PCRTCOverscan,
 
 		// integer settings
-		Mipmap,
 		TrilinearFiltering,
 		SkipDrawStart,
 		SkipDrawEnd,
@@ -125,13 +125,13 @@ namespace GameDatabaseSchema
 namespace GameDatabase
 {
 	void ensureLoaded();
-	const GameDatabaseSchema::GameEntry* findGame(const std::string_view& serial);
+	const GameDatabaseSchema::GameEntry* findGame(const std::string_view serial);
 
 	struct TrackHash
 	{
 		static constexpr u32 SIZE = 16;
 
-		bool parseHash(const std::string_view& str);
+		bool parseHash(const std::string_view str);
 		std::string toString() const;
 
 #define MAKE_OPERATOR(op) \

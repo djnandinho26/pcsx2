@@ -27,13 +27,13 @@
 namespace GameDatabaseSchema
 {
 	static const char* getHWFixName(GSHWFixId id);
-	static std::optional<GSHWFixId> parseHWFixName(const std::string_view& name);
+	static std::optional<GSHWFixId> parseHWFixName(const std::string_view name);
 	static bool isUserHackHWFix(GSHWFixId id);
 } // namespace GameDatabaseSchema
 
 namespace GameDatabase
 {
-	static void parseAndInsert(const std::string_view& serial, const c4::yml::NodeRef& node);
+	static void parseAndInsert(const std::string_view serial, const c4::yml::NodeRef& node);
 	static void initDatabase();
 } // namespace GameDatabase
 
@@ -84,7 +84,7 @@ const char* GameDatabaseSchema::GameEntry::compatAsString() const
 	}
 }
 
-void GameDatabase::parseAndInsert(const std::string_view& serial, const c4::yml::NodeRef& node)
+void GameDatabase::parseAndInsert(const std::string_view serial, const c4::yml::NodeRef& node)
 {
 	GameDatabaseSchema::GameEntry gameEntry;
 	if (node.has_child("name"))
@@ -370,13 +370,13 @@ static const char* s_gs_hw_fix_names[] = {
 	"textureInsideRT",
 	"alignSprite",
 	"mergeSprite",
+	"mipmap",
 	"wildArmsHack",
 	"bilinearUpscale",
 	"nativePaletteDraw",
 	"estimateTextureRegion",
 	"PCRTCOffsets",
 	"PCRTCOverscan",
-	"mipmap",
 	"trilinearFiltering",
 	"skipDrawStart",
 	"skipDrawEnd",
@@ -404,7 +404,7 @@ const char* GameDatabaseSchema::getHWFixName(GSHWFixId id)
 	return s_gs_hw_fix_names[static_cast<u32>(id)];
 }
 
-static std::optional<GameDatabaseSchema::GSHWFixId> GameDatabaseSchema::parseHWFixName(const std::string_view& name)
+static std::optional<GameDatabaseSchema::GSHWFixId> GameDatabaseSchema::parseHWFixName(const std::string_view name)
 {
 	for (u32 i = 0; i < std::size(s_gs_hw_fix_names); i++)
 	{
@@ -621,7 +621,7 @@ bool GameDatabaseSchema::GameEntry::configMatchesHWFix(const Pcsx2Config::GSOpti
 			return (static_cast<int>(config.PCRTCOverscan) == value);
 
 		case GSHWFixId::Mipmap:
-			return (config.HWMipmap == HWMipmapLevel::Automatic || static_cast<int>(config.HWMipmap) == value);
+			return (static_cast<int>(config.HWMipmap) == value);
 
 		case GSHWFixId::TrilinearFiltering:
 			return (config.TriFilter == TriFiltering::Automatic || static_cast<int>(config.TriFilter) == value);
@@ -775,16 +775,8 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
 				break;
 
 			case GSHWFixId::Mipmap:
-			{
-				if (value >= 0 && value <= static_cast<int>(HWMipmapLevel::Full))
-				{
-					if (config.HWMipmap == HWMipmapLevel::Automatic)
-						config.HWMipmap = static_cast<HWMipmapLevel>(value);
-					else if (config.HWMipmap == HWMipmapLevel::Off)
-						Console.Warning("[GameDB] Game requires mipmapping but it has been force disabled.");
-				}
-			}
-			break;
+				config.HWMipmap = (value > 0);
+				break;
 
 			case GSHWFixId::TrilinearFiltering:
 			{
@@ -792,8 +784,8 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
 				{
 					if (config.TriFilter == TriFiltering::Automatic)
 						config.TriFilter = static_cast<TriFiltering>(value);
-					else if (config.TriFilter == TriFiltering::Off)
-						Console.Warning("[GameDB] Game requires trilinear filtering but it has been force disabled.");
+					else if (config.TriFilter > TriFiltering::Off)
+						Console.Warning("[GameDB] Game requires trilinear filtering to be disabled.");
 				}
 			}
 			break;
@@ -993,7 +985,7 @@ void GameDatabase::ensureLoaded()
 	});
 }
 
-const GameDatabaseSchema::GameEntry* GameDatabase::findGame(const std::string_view& serial)
+const GameDatabaseSchema::GameEntry* GameDatabase::findGame(const std::string_view serial)
 {
 	GameDatabase::ensureLoaded();
 
@@ -1001,7 +993,7 @@ const GameDatabaseSchema::GameEntry* GameDatabase::findGame(const std::string_vi
 	return (iter != s_game_db.end()) ? &iter->second : nullptr;
 }
 
-bool GameDatabase::TrackHash::parseHash(const std::string_view& str)
+bool GameDatabase::TrackHash::parseHash(const std::string_view str)
 {
 	constexpr u32 expected_length = SIZE * 2;
 	if (str.length() != expected_length)
