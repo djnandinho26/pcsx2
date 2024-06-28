@@ -73,7 +73,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	//////////////////////////////////////////////////////////////////////////
 	// Global Settings
 	//////////////////////////////////////////////////////////////////////////
-	SettingWidgetBinder::BindWidgetToStringSetting(sif, m_ui.adapter, "EmuCore/GS", "Adapter");
+	SettingWidgetBinder::BindWidgetToStringSetting(sif, m_ui.adapterDropdown, "EmuCore/GS", "Adapter");
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.enableHWFixes, "EmuCore/GS", "UserHacks", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.spinGPUDuringReadbacks, "EmuCore/GS", "HWSpinGPUForReadbacks", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.spinCPUDuringReadbacks, "EmuCore/GS", "HWSpinCPUForReadbacks", false);
@@ -194,13 +194,14 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	// HW Upscaling Fixes
 	//////////////////////////////////////////////////////////////////////////
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.halfPixelOffset, "EmuCore/GS", "UserHacks_HalfPixelOffset", 0);
+	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.nativeScaling, "EmuCore/GS", "UserHacks_native_scaling", 0);
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.roundSprite, "EmuCore/GS", "UserHacks_round_sprite_offset", 0);
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.bilinearHack, "EmuCore/GS", "UserHacks_BilinearHack", 0);
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.textureOffsetX, "EmuCore/GS", "UserHacks_TCOffsetX", 0);
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.textureOffsetY, "EmuCore/GS", "UserHacks_TCOffsetY", 0);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.alignSprite, "EmuCore/GS", "UserHacks_align_sprite_X", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.mergeSprite, "EmuCore/GS", "UserHacks_merge_pp_sprite", false);
-	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.wildHack, "EmuCore/GS", "UserHacks_WildHack", false);
+	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.forceEvenSpritePosition, "EmuCore/GS", "UserHacks_forceEvenSpritePosition", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.nativePaletteDraw, "EmuCore/GS", "UserHacks_NativePaletteDraw", false);
 
 	//////////////////////////////////////////////////////////////////////////
@@ -219,6 +220,18 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	connect(m_ui.loadTextureReplacements, &QCheckBox::checkStateChanged, this, &GraphicsSettingsWidget::onTextureReplacementChanged);
 	onTextureDumpChanged();
 	onTextureReplacementChanged();
+
+	if (m_dialog->isPerGameSettings())
+	{
+		m_ui.textureReplacementLayout->removeWidget(m_ui.texturesDirectoryBox);
+		m_ui.texturesDirectoryBox->deleteLater();
+		m_ui.texturesDirectoryBox = nullptr;
+		m_ui.texturesDirectory = nullptr;
+		m_ui.texturesBrowse = nullptr;
+		m_ui.texturesOpen = nullptr;
+		m_ui.texturesReset = nullptr;
+		m_ui.textureDescriptionText = nullptr;
+	}
 
 	//////////////////////////////////////////////////////////////////////////
 	// Advanced Settings
@@ -251,9 +264,9 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	const int renderer = m_dialog->getEffectiveIntValue("EmuCore/GS", "Renderer", static_cast<int>(GSRendererType::Auto));
 	for (const RendererInfo& ri : s_renderer_info)
 	{
-		m_ui.renderer->addItem(qApp->translate("GraphicsSettingsWidget", ri.name));
+		m_ui.rendererDropdown->addItem(qApp->translate("GraphicsSettingsWidget", ri.name));
 		if (renderer == static_cast<int>(ri.type))
-			m_ui.renderer->setCurrentIndex(m_ui.renderer->count() - 1);
+			m_ui.rendererDropdown->setCurrentIndex(m_ui.rendererDropdown->count() - 1);
 	}
 
 	// per-game override for renderer is slightly annoying, since we need to populate the global setting field
@@ -266,15 +279,15 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 			if (global_renderer == static_cast<int>(ri.type))
 				global_renderer_name = qApp->translate("GraphicsSettingsWidget", ri.name);
 		}
-		m_ui.renderer->insertItem(0, tr("Use Global Setting [%1]").arg(global_renderer_name));
+		m_ui.rendererDropdown->insertItem(0, tr("Use Global Setting [%1]").arg(global_renderer_name));
 
 		// Effective Index already selected, set to global if setting is not per-game
 		int override_renderer;
 		if (!sif->GetIntValue("EmuCore/GS", "Renderer", &override_renderer))
-			m_ui.renderer->setCurrentIndex(0);
+			m_ui.rendererDropdown->setCurrentIndex(0);
 	}
 
-	connect(m_ui.renderer, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GraphicsSettingsWidget::onRendererChanged);
+	connect(m_ui.rendererDropdown, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GraphicsSettingsWidget::onRendererChanged);
 	connect(m_ui.enableHWFixes, &QCheckBox::checkStateChanged, this, &GraphicsSettingsWidget::updateRendererDependentOptions);
 	connect(m_ui.textureFiltering, &QComboBox::currentIndexChanged, this, &GraphicsSettingsWidget::onTextureFilteringChange);
 	connect(m_ui.swTextureFiltering, &QComboBox::currentIndexChanged, this, &GraphicsSettingsWidget::onSWTextureFilteringChange);
@@ -315,8 +328,8 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 			m_dialog->removeSettingValue("EmuCore", "EnableNoInterlacingPatches");
 		}
 
-		m_ui.gridLayout->removeWidget(m_ui.widescreenPatches);
-		m_ui.gridLayout->removeWidget(m_ui.noInterlacingPatches);
+		m_ui.displayGridLayout->removeWidget(m_ui.widescreenPatches);
+		m_ui.displayGridLayout->removeWidget(m_ui.noInterlacingPatches);
 		safe_delete(m_ui.widescreenPatches);
 		safe_delete(m_ui.noInterlacingPatches);		
 	}
@@ -390,6 +403,18 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 		onVideoCaptureAutoResolutionChanged();
 		onEnableAudioCaptureChanged();
 		onEnableAudioCaptureArgumentsChanged();
+
+		if (m_dialog->isPerGameSettings())
+		{
+			m_ui.recordingTabLayout->removeWidget(m_ui.videoDumpDirectory);
+			m_ui.videoDumpDirectory->deleteLater();
+			m_ui.videoDumpDirectory = nullptr;
+			m_ui.videoDumpLayout = nullptr;
+			m_ui.videoDumpingDirectory = nullptr;
+			m_ui.videoDumpingDirectoryBrowse = nullptr;
+			m_ui.videoDumpingDirectoryOpen = nullptr;
+			m_ui.videoDumpingDirectoryReset = nullptr;
+		}
 	}
 
 	// Display tab
@@ -609,8 +634,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 			//: Namco: a game publisher and development company. Leave the name as-is. Ace Combat, Tekken, Soul Calibur: game names. Leave as-is or use official translations.
 			tr("Fixes issues with upscaling (vertical lines) in Namco games like Ace Combat, Tekken, Soul Calibur, etc."));
 
-		//: Wild Arms: name of a game series. Leave as-is or use an official translation.
-		dialog->registerWidgetHelp(m_ui.wildHack, tr("Wild Arms Hack"), tr("Unchecked"),
+		dialog->registerWidgetHelp(m_ui.forceEvenSpritePosition, tr("Force Even Sprite Position"), tr("Unchecked"),
 			//: Wild Arms: name of a game series. Leave as-is or use an official translation.
 			tr("Lowers the GS precision to avoid gaps between pixels when upscaling. Fixes the text on Wild Arms games."));
 
@@ -814,7 +838,7 @@ void GraphicsSettingsWidget::onAdapterChanged(int index)
 	const int first_adapter = m_dialog->isPerGameSettings() ? 2 : 1;
 
 	if (index >= first_adapter)
-		m_dialog->setStringSettingValue("EmuCore/GS", "Adapter", m_ui.adapter->currentText().toUtf8().constData());
+		m_dialog->setStringSettingValue("EmuCore/GS", "Adapter", m_ui.adapterDropdown->currentText().toUtf8().constData());
 	else if (index > 0 && m_dialog->isPerGameSettings())
 		m_dialog->setStringSettingValue("EmuCore/GS", "Adapter", "");
 	else
@@ -1018,31 +1042,31 @@ void GraphicsSettingsWidget::updateRendererDependentOptions()
 
 	// fill+select adapters
 	{
-		QSignalBlocker sb(m_ui.adapter);
+		QSignalBlocker sb(m_ui.adapterDropdown);
 
 		std::string current_adapter = Host::GetBaseStringSettingValue("EmuCore/GS", "Adapter", "");
-		m_ui.adapter->clear();
-		m_ui.adapter->setEnabled(!adapters.empty());
-		m_ui.adapter->addItem(tr("(Default)"));
-		m_ui.adapter->setCurrentIndex(0);
+		m_ui.adapterDropdown->clear();
+		m_ui.adapterDropdown->setEnabled(!adapters.empty());
+		m_ui.adapterDropdown->addItem(tr("(Default)"));
+		m_ui.adapterDropdown->setCurrentIndex(0);
 
 		if (m_dialog->isPerGameSettings())
 		{
-			m_ui.adapter->insertItem(
+			m_ui.adapterDropdown->insertItem(
 				0, tr("Use Global Setting [%1]").arg(current_adapter.empty() ? tr("(Default)") : QString::fromStdString(current_adapter)));
 			if (!m_dialog->getSettingsInterface()->GetStringValue("EmuCore/GS", "Adapter", &current_adapter))
 			{
 				// clear the adapter so we don't set it to the global value
 				current_adapter.clear();
-				m_ui.adapter->setCurrentIndex(0);
+				m_ui.adapterDropdown->setCurrentIndex(0);
 			}
 		}
 
 		for (const std::string& adapter : adapters)
 		{
-			m_ui.adapter->addItem(QString::fromStdString(adapter));
+			m_ui.adapterDropdown->addItem(QString::fromStdString(adapter));
 			if (current_adapter == adapter)
-				m_ui.adapter->setCurrentIndex(m_ui.adapter->count() - 1);
+				m_ui.adapterDropdown->setCurrentIndex(m_ui.adapterDropdown->count() - 1);
 		}
 	}
 
@@ -1116,12 +1140,13 @@ void GraphicsSettingsWidget::resetManualHardwareFixes()
 		check_bool("EmuCore/GS", "UserHacks_EstimateTextureRegion", false);
 		check_bool("EmuCore/GS", "paltex", false);
 		check_int("EmuCore/GS", "UserHacks_HalfPixelOffset", 0);
+		check_int("EmuCore/GS", "UserHacks_native_scaling", static_cast<int>(GSNativeScaling::Off));
 		check_int("EmuCore/GS", "UserHacks_round_sprite_offset", 0);
 		check_int("EmuCore/GS", "UserHacks_TCOffsetX", 0);
 		check_int("EmuCore/GS", "UserHacks_TCOffsetY", 0);
 		check_bool("EmuCore/GS", "UserHacks_align_sprite_X", false);
 		check_bool("EmuCore/GS", "UserHacks_merge_pp_sprite", false);
-		check_bool("EmuCore/GS", "UserHacks_WildHack", false);
+		check_bool("EmuCore/GS", "UserHacks_ForceEvenSpritePosition", false);
 		check_bool("EmuCore/GS", "UserHacks_BilinearHack", false);
 	}
 

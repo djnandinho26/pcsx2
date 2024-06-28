@@ -223,7 +223,7 @@ void GSState::ResetHandlers()
 	m_fpGIFPackedRegHandlers[GIF_REG_PRIM] = (GIFPackedRegHandler)(GIFRegHandler)&GSState::GIFRegHandlerPRIM;
 	m_fpGIFPackedRegHandlers[GIF_REG_RGBA] = &GSState::GIFPackedRegHandlerRGBA;
 	m_fpGIFPackedRegHandlers[GIF_REG_STQ] = &GSState::GIFPackedRegHandlerSTQ;
-	m_fpGIFPackedRegHandlers[GIF_REG_UV] = GSConfig.UserHacks_WildHack ? &GSState::GIFPackedRegHandlerUV_Hack : &GSState::GIFPackedRegHandlerUV;
+	m_fpGIFPackedRegHandlers[GIF_REG_UV] = GSConfig.UserHacks_ForceEvenSpritePosition ? &GSState::GIFPackedRegHandlerUV_Hack : &GSState::GIFPackedRegHandlerUV;
 	m_fpGIFPackedRegHandlers[GIF_REG_TEX0_1] = (GIFPackedRegHandler)(GIFRegHandler)&GSState::GIFRegHandlerTEX0<0>;
 	m_fpGIFPackedRegHandlers[GIF_REG_TEX0_2] = (GIFPackedRegHandler)(GIFRegHandler)&GSState::GIFRegHandlerTEX0<1>;
 	m_fpGIFPackedRegHandlers[GIF_REG_CLAMP_1] = (GIFPackedRegHandler)(GIFRegHandler)&GSState::GIFRegHandlerCLAMP<0>;
@@ -244,7 +244,7 @@ void GSState::ResetHandlers()
 	m_fpGIFRegHandlers[GIF_A_D_REG_RGBAQ] = &GSState::GIFRegHandlerRGBAQ;
 	m_fpGIFRegHandlers[GIF_A_D_REG_RGBAQ + 0x10] = &GSState::GIFRegHandlerRGBAQ;
 	m_fpGIFRegHandlers[GIF_A_D_REG_ST] = &GSState::GIFRegHandlerST;
-	m_fpGIFRegHandlers[GIF_A_D_REG_UV] = GSConfig.UserHacks_WildHack ? &GSState::GIFRegHandlerUV_Hack : &GSState::GIFRegHandlerUV;
+	m_fpGIFRegHandlers[GIF_A_D_REG_UV] = GSConfig.UserHacks_ForceEvenSpritePosition ? &GSState::GIFRegHandlerUV_Hack : &GSState::GIFRegHandlerUV;
 	m_fpGIFRegHandlers[GIF_A_D_REG_TEX0_1] = &GSState::GIFRegHandlerTEX0<0>;
 	m_fpGIFRegHandlers[GIF_A_D_REG_TEX0_2] = &GSState::GIFRegHandlerTEX0<1>;
 	m_fpGIFRegHandlers[GIF_A_D_REG_CLAMP_1] = &GSState::GIFRegHandlerCLAMP<0>;
@@ -310,7 +310,7 @@ void GSState::UpdateSettings(const Pcsx2Config::GSOptions& old_config)
 	if (
 		GSConfig.AutoFlushSW != old_config.AutoFlushSW ||
 		GSConfig.UserHacks_AutoFlush != old_config.UserHacks_AutoFlush ||
-		GSConfig.UserHacks_WildHack != old_config.UserHacks_WildHack)
+		GSConfig.UserHacks_ForceEvenSpritePosition != old_config.UserHacks_ForceEvenSpritePosition)
 	{
 		ResetHandlers();
 	}
@@ -1749,7 +1749,7 @@ void GSState::FlushPrim()
 					GSVector4i* RESTRICT vert_ptr = (GSVector4i*)&m_vertex.buff[i];
 					GSVector4i v = vert_ptr[1];
 					v = v.xxxx().u16to32().sub32(m_xyof);
-					v = v.blend32<12>(v.sra32(4));
+					v = v.blend32<12>(v.sra32<4>());
 					m_vertex.xy[i & 3] = v;
 					m_vertex.xy_tail = unused;
 				}
@@ -2939,7 +2939,7 @@ GSState::PRIM_OVERLAP GSState::PrimitiveOverlap()
 
 			if (all.rintersect(sprite).rempty())
 			{
-				all = all.runion_ordered(sprite);
+				all = all.runion(sprite);
 			}
 			else
 			{
@@ -2998,6 +2998,62 @@ GSState::PRIM_OVERLAP GSState::PrimitiveOverlap()
 	return overlap;
 }
 
+bool GSState::SpriteDrawWithoutGaps()
+{
+	// Check that the height matches. Xenosaga 3 draws a letterbox around
+	// the FMV with a sprite at the top and bottom of the framebuffer.
+	const GSVertex* v = &m_vertex.buff[0];
+	const int first_dpY = v[1].XYZ.Y - v[0].XYZ.Y;
+	const int first_dpX = v[1].XYZ.X - v[0].XYZ.X;
+
+	// Horizontal Match.
+	if (((first_dpX + 8) >> 4) == m_r_no_scissor.z)
+	{
+		// Borrowed from MergeSprite() modified to calculate heights.
+		for (u32 i = 2; i < m_vertex.next; i += 2)
+		{
+			const int last_pY = v[i - 1].XYZ.Y;
+			const int dpY = v[i + 1].XYZ.Y - v[i].XYZ.Y;
+
+			if (std::abs(dpY - first_dpY) >= 16 || std::abs(static_cast<int>(v[i].XYZ.Y) - last_pY) >= 16)
+				return false;
+		}
+
+		return true;
+	}
+
+	// Vertical Match.
+	if (((first_dpY + 8) >> 4) == m_r_no_scissor.w)
+	{
+		// Borrowed from MergeSprite().
+		const int offset_X = m_context->XYOFFSET.OFX;
+		for (u32 i = 2; i < m_vertex.next; i += 2)
+		{
+			const int last_pX = v[i - 1].XYZ.X;
+			const int this_start_X = v[i].XYZ.X;
+			const int last_start_X = v[i - 2].XYZ.X;
+
+			const int dpX = v[i + 1].XYZ.X - v[i].XYZ.X;
+
+			if (this_start_X < last_start_X)
+			{
+				const int prev_X = last_start_X - offset_X;
+				if (std::abs(dpX - prev_X) >= 16 || std::abs(this_start_X - offset_X) >= 16)
+					return false;
+			}
+			else
+			{
+				if ((std::abs(dpX - first_dpX) >= 16 && (i + 2) < m_vertex.next) || std::abs(this_start_X - last_pX) >= 16)
+					return false;
+			}
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 bool GSState::PrimitiveCoversWithoutGaps()
 {
 	if (m_primitive_covers_without_gaps.has_value())
@@ -3033,69 +3089,10 @@ bool GSState::PrimitiveCoversWithoutGaps()
 		return true;
 	}
 
-	// Check that the height matches. Xenosaga 3 draws a letterbox around
-	// the FMV with a sprite at the top and bottom of the framebuffer.
-	const GSVertex* v = &m_vertex.buff[0];
-	const int first_dpY = v[1].XYZ.Y - v[0].XYZ.Y;
-	const int first_dpX = v[1].XYZ.X - v[0].XYZ.X;
+	const bool result = SpriteDrawWithoutGaps();
+	m_primitive_covers_without_gaps = result;
 
-	// Horizontal Match.
-	if (((first_dpX + 8) >> 4) == m_r_no_scissor.z)
-	{
-		// Borrowed from MergeSprite() modified to calculate heights.
-		for (u32 i = 2; i < m_vertex.next; i += 2)
-		{
-			const int last_pY = v[i - 1].XYZ.Y;
-			const int dpY = v[i + 1].XYZ.Y - v[i].XYZ.Y;
-			if (std::abs(dpY - first_dpY) >= 16 || std::abs(static_cast<int>(v[i].XYZ.Y) - last_pY) >= 16)
-			{
-				m_primitive_covers_without_gaps = false;
-				return false;
-			}
-		}
-
-		m_primitive_covers_without_gaps = true;
-		return true;
-	}
-
-	// Vertical Match.
-	if (((first_dpY + 8) >> 4) == m_r_no_scissor.w)
-	{
-		// Borrowed from MergeSprite().
-		const int offset_X = m_context->XYOFFSET.OFX;
-		for (u32 i = 2; i < m_vertex.next; i += 2)
-		{
-			const int last_pX = v[i - 1].XYZ.X;
-			const int this_start_X = v[i].XYZ.X;
-			const int last_start_X = v[i - 2].XYZ.X;
-
-			const int dpX = v[i + 1].XYZ.X - v[i].XYZ.X;
-
-			if (this_start_X < last_start_X)
-			{
-				const int prev_X = last_start_X - offset_X;
-				if (std::abs(dpX - prev_X) >= 16 || std::abs(this_start_X - offset_X) >= 16)
-				{
-					m_primitive_covers_without_gaps = false;
-					return false;
-				}
-			}
-			else
-			{
-				if (std::abs(dpX - first_dpX) >= 16 || std::abs(this_start_X - last_pX) >= 16)
-				{
-					m_primitive_covers_without_gaps = false;
-					return false;
-				}
-			}
-		}
-
-		m_primitive_covers_without_gaps = true;
-		return true;
-	}
-
-	m_primitive_covers_without_gaps = false;
-	return false;
+	return result;
 }
 
 __forceinline bool GSState::IsAutoFlushDraw(u32 prim)
@@ -3588,8 +3585,13 @@ __forceinline void GSState::VertexKick(u32 skip)
 				break;
 		}
 
+#ifndef _M_ARM64
 		// We only care about the xy passing the skip test. zw is the offset coordinates for native culling.
 		skip |= test.mask() & 0xff;
+#else
+		// mask() is slow on ARM, so just pull the bits out instead, thankfully we only care about the first 4 bytes.
+		skip |= (static_cast<u64>(test.extract64<0>()) & UINT64_C(0x8080808080808080)) != 0;
+#endif
 	}
 
 	if (skip != 0)
@@ -4001,7 +4003,17 @@ GSState::TextureMinMaxResult GSState::GetTextureMinMax(GIFRegTEX0 TEX0, GIFRegCL
 
 		const bool inc_x = vr.x < tr.z;
 		const bool inc_y = vr.y < tr.w;
-		vr = (vr + GSVector4i(inc_x ? 0 : -1, inc_y ? 0 : -1, inc_x ? 1 : 0, inc_y ? 1 : 0).xxyy()).rintersect(tr);
+		vr = (vr + GSVector4i(inc_x ? 0 : -1, inc_y ? 0 : -1, inc_x ? 1 : 0, inc_y ? 1 : 0)).rintersect(tr);
+	}
+	else if (vr.xxzz().rempty())
+	{
+		const bool inc_x = vr.x < tr.z;
+		vr = (vr + GSVector4i(inc_x ? 0 : -1, 0, inc_x ? 1 : 0, 0)).rintersect(tr);
+	}
+	else if (vr.yyww().rempty())
+	{
+		const bool inc_y = vr.y < tr.w;
+		vr = (vr + GSVector4i(0, inc_y ? 0 : -1, 0, inc_y ? 1 : 0)).rintersect(tr);
 	}
 
 	return { vr, uses_border };

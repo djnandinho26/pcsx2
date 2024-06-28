@@ -39,7 +39,9 @@ enum class ShaderConvert
 	RGBA8_TO_FLOAT24_BILN,
 	RGBA8_TO_FLOAT16_BILN,
 	RGB5A1_TO_FLOAT16_BILN,
+	FLOAT32_TO_FLOAT24,
 	DEPTH_COPY,
+	DOWNSAMPLE_COPY,
 	RGBA_TO_8I,
 	CLUT_4,
 	CLUT_8,
@@ -77,6 +79,7 @@ static inline bool HasDepthOutput(ShaderConvert shader)
 		case ShaderConvert::RGBA8_TO_FLOAT24_BILN:
 		case ShaderConvert::RGBA8_TO_FLOAT16_BILN:
 		case ShaderConvert::RGB5A1_TO_FLOAT16_BILN:
+		case ShaderConvert::FLOAT32_TO_FLOAT24:
 		case ShaderConvert::DEPTH_COPY:
 			return true;
 		default:
@@ -165,6 +168,18 @@ enum ChannelFetch
 	ChannelFetch_ALPHA = 4,
 	ChannelFetch_RGB   = 5,
 	ChannelFetch_GXBY  = 6,
+};
+
+enum class HWBlendType
+{
+	SRC_ONE_DST_FACTOR      = 1, // Use the dest color as blend factor, Cs is set to 1.
+	SRC_ALPHA_DST_FACTOR    = 2, // Use the dest color as blend factor, Cs is set to (Alpha - 1).
+	SRC_DOUBLE              = 3, // Double source color.
+	SRC_HALF_ONE_DST_FACTOR = 4, // Use the dest color as blend factor, Cs is set to 0.5, additionally divide As or Af by 2.
+
+	BMIX1_ALPHA_HIGH_ONE    = 1, // Blend formula is replaced when alpha is higher than 1.
+	BMIX1_SRC_HALF          = 2, // Impossible blend will always be wrong on hw, divide Cs by 2.
+	BMIX2_OVERFLOW          = 3, // Blending Cs might overflow, try to compensate.
 };
 
 struct alignas(16) DisplayConstantBuffer
@@ -573,6 +588,7 @@ struct alignas(16) GSHWDrawConfig
 
 		GSVector4 HalfTexel;
 		GSVector4 MinMax;
+		GSVector4 LODParams;
 		GSVector4 STRange;
 		GSVector4i ChannelShuffle;
 		GSVector2 TCOffsetHack;
@@ -972,6 +988,9 @@ public:
 
 	/// Converts a colour format to an indexed format texture.
 	virtual void ConvertToIndexedTexture(GSTexture* sTex, float sScale, u32 offsetX, u32 offsetY, u32 SBW, u32 SPSM, GSTexture* dTex, u32 DBW, u32 DPSM) = 0;
+
+	/// Uses box downsampling to resize a texture.
+	virtual void FilteredDownsampleTexture(GSTexture* sTex, GSTexture* dTex, u32 downsample_factor, const GSVector2i& clamp_min) = 0;
 
 	virtual void RenderHW(GSHWDrawConfig& config) = 0;
 

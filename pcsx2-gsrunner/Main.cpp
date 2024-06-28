@@ -17,9 +17,11 @@
 
 #include "common/Assertions.h"
 #include "common/Console.h"
+#include "common/CrashHandler.h"
 #include "common/FileSystem.h"
 #include "common/MemorySettingsInterface.h"
 #include "common/Path.h"
+#include "common/ProgressCallback.h"
 #include "common/SettingsWrapper.h"
 #include "common/StringUtil.h"
 
@@ -93,6 +95,8 @@ bool GSRunner::InitializeConfig()
 	if (!EmuFolders::SetResourcesDirectory() || !EmuFolders::SetDataDirectory(nullptr))
 		return false;
 
+	CrashHandler::SetWriteDirectory(EmuFolders::DataRoot);
+
 	const char* error;
 	if (!VMManager::PerformEarlyHardwareChecks(&error))
 		return false;
@@ -163,6 +167,11 @@ bool Host::RequestResetSettings(bool folders, bool core, bool controllers, bool 
 void Host::SetDefaultUISettings(SettingsInterface& si)
 {
 	// nothing
+}
+
+std::unique_ptr<ProgressCallback> Host::CreateHostProgressCallback()
+{
+	return ProgressCallback::CreateNullProgressCallback();
 }
 
 void Host::ReportErrorAsync(const std::string_view title, const std::string_view message)
@@ -669,6 +678,7 @@ void GSRunner::DumpStats()
 
 int main(int argc, char* argv[])
 {
+	CrashHandler::Install();
 	GSRunner::InitializeConsole();
 
 	if (!GSRunner::InitializeConfig())

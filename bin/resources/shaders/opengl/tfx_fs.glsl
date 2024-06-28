@@ -44,6 +44,7 @@ layout(std140, binding = 0) uniform cb21
 	vec4 HalfTexel;
 
 	vec4 MinMax;
+	vec4 LODParams;
 	vec4 STRange;
 
 	ivec4 ChannelShuffle;
@@ -159,10 +160,10 @@ vec4 sample_c(vec2 uv)
 	return texture(TextureSampler, uv);
 #elif PS_MANUAL_LOD == 1
 	// FIXME add LOD: K - ( LOG2(Q) * (1 << L))
-	float K = MinMax.x;
-	float L = MinMax.y;
-	float bias = MinMax.z;
-	float max_lod = MinMax.w;
+	float K = LODParams.x;
+	float L = LODParams.y;
+	float bias = LODParams.z;
+	float max_lod = LODParams.w;
 
 	float gs_lod = K - log2(abs(PSin.t_float.w)) * L;
 	// FIXME max useful ?
@@ -936,8 +937,15 @@ float As = As_rgba.a;
 	float color_compensate = 255.0f / max(128.0f, max_color);
 	Color.rgb *= vec3(color_compensate);
 #elif PS_BLEND_HW == 4
-	// Needed for Cd * (1 - Ad)
-	Color.rgb = vec3(128.0f);
+	// Needed for Cd * (1 - Ad) and Cd*(1 + Alpha)
+
+#if PS_BLEND_C == 2
+	float Alpha = Af;
+#else
+	float Alpha = As;
+#endif
+	As_rgba.rgb = vec3(Alpha) * vec3(128.0f / 255.0f);
+	Color.rgb = vec3(127.5f);
 #endif
 
 #endif

@@ -41,6 +41,7 @@ public:
 		bool vk_ext_rasterization_order_attachment_access : 1;
 		bool vk_ext_full_screen_exclusive : 1;
 		bool vk_ext_line_rasterization : 1;
+		bool vk_ext_swapchain_maintenance1 : 1;
 		bool vk_khr_driver_properties : 1;
 		bool vk_khr_shader_non_semantic_info : 1;
 	};
@@ -125,7 +126,8 @@ public:
 
 private:
 	// Helper method to create a Vulkan instance.
-	static VkInstance CreateVulkanInstance(const WindowInfo& wi, bool enable_debug_utils, bool enable_validation_layer);
+	static VkInstance CreateVulkanInstance(const WindowInfo& wi, OptionalExtensions* oe, bool enable_debug_utils,
+		bool enable_validation_layer);
 
 	// Returns a list of Vulkan-compatible GPUs.
 	using GPUList = std::vector<std::pair<VkPhysicalDevice, std::string>>;
@@ -173,7 +175,8 @@ private:
 	};
 
 	using ExtensionList = std::vector<const char*>;
-	static bool SelectInstanceExtensions(ExtensionList* extension_list, const WindowInfo& wi, bool enable_debug_utils);
+	static bool SelectInstanceExtensions(ExtensionList* extension_list, const WindowInfo& wi, OptionalExtensions* oe,
+		bool enable_debug_utils);
 	bool SelectDeviceExtensions(ExtensionList* extension_list, bool enable_surface);
 	bool SelectDeviceFeatures();
 	bool CreateDevice(VkSurfaceKHR surface, bool enable_validation_layer);
@@ -540,6 +543,7 @@ public:
 		GSTexture* sTex, float sScale, u32 offsetX, u32 offsetY, GSTexture* dTex, u32 dOffset, u32 dSize) override;
 	void ConvertToIndexedTexture(GSTexture* sTex, float sScale, u32 offsetX, u32 offsetY, u32 SBW, u32 SPSM,
 		GSTexture* dTex, u32 DBW, u32 DPSM) override;
+	void FilteredDownsampleTexture(GSTexture* sTex, GSTexture* dTex, u32 downsample_factor, const GSVector2i& clamp_min) override;
 
 	void SetupDATE(GSTexture* rt, GSTexture* ds, SetDATM datm, const GSVector4i& bbox);
 	GSTextureVK* SetupPrimitiveTrackingDATE(GSHWDrawConfig& config);

@@ -425,8 +425,8 @@ bool ImGuiFullscreen::UpdateLayoutScale()
 	static constexpr float LAYOUT_RATIO = LAYOUT_SCREEN_WIDTH / LAYOUT_SCREEN_HEIGHT;
 	const ImGuiIO& io = ImGui::GetIO();
 
-	const float screen_width = io.DisplaySize.x;
-	const float screen_height = io.DisplaySize.y;
+	const float screen_width = std::max(io.DisplaySize.x, 1.0f);
+	const float screen_height = std::max(io.DisplaySize.y, 1.0f);
 	const float screen_ratio = screen_width / screen_height;
 	const float old_scale = g_layout_scale;
 
@@ -846,8 +846,8 @@ void ImGuiFullscreen::BeginMenuButtons(u32 num_items, float y_align, float x_pad
 
 	if (y_align != 0.0f)
 	{
-		const float total_size =
-			static_cast<float>(num_items) * LayoutScale(item_height + (y_padding * 2.0f)) + LayoutScale(y_padding * 2.0f);
+		const float real_item_height = LayoutScale(item_height) + (LayoutScale(y_padding) * 2.0f);
+		const float total_size = (static_cast<float>(num_items) * real_item_height) + (LayoutScale(y_padding) * 2.0f);
 		const float window_height = ImGui::GetWindowHeight();
 		if (window_height > total_size)
 			ImGui::SetCursorPosY((window_height - total_size) * y_align);

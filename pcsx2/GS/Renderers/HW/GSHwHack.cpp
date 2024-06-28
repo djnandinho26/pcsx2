@@ -194,10 +194,12 @@ bool GSHwHack::GSC_Tekken5(GSRendererHW& r, int& skip)
 			return true;
 		}
 
-		if (!s_nativeres && RTME && RTEX0.TFX == 1 && RFPSM == RTPSM && std::abs(static_cast<int>(RFBP - RTBP0)) == 0x180 && RTPSM == PSMCT32 && RFBMSK == 0xFF000000)
+		if (!s_nativeres && r.PRIM->PRIM == GS_SPRITE && RTME && RTEX0.TFX == 1 && RFPSM == RTPSM && RTPSM == PSMCT32 && RFBMSK == 0xFF000000 && r.m_index.tail > 2)
 		{
 			// Don't enable hack on native res.
 			// Fixes ghosting/blur effect and white lines appearing in stages: Moonfit Wilderness, Acid Rain - caused by upscaling.
+			// Game copies the framebuffer as individual page rects with slight offsets (like 1/16 of a pixel etc) which doesn't wokr well with upscaling.
+			// This should catch all the scenarios, maybe overdoes it, but it's for 1 game and it's non-detrimental, it's better than squares all over the screen.
 			const GSVector4i draw_size(r.m_vt.m_min.p.x, r.m_vt.m_min.p.y, r.m_vt.m_max.p.x + 1.0f, r.m_vt.m_max.p.y + 1.0f);
 			const GSVector4i read_size(r.m_vt.m_min.t.x, r.m_vt.m_min.t.y, r.m_vt.m_max.t.x + 0.5f, r.m_vt.m_max.t.y + 0.5f);
 			r.ReplaceVerticesWithSprite(draw_size, read_size, GSVector2i(read_size.width(), read_size.height()), draw_size);
@@ -280,12 +282,14 @@ bool GSHwHack::GSC_BurnoutGames(GSRendererHW& r, int& skip)
 
 		case 2: // downsample
 		{
-			const GSVector4i downsample_rect = GSVector4i(0, 0, ((main_fb_size.x / 2) - 1), ((main_fb_size.y / 2) - 1));
-			const GSVector4i uv_rect = GSVector4i(0, 0, (downsample_rect.z * 2) - std::min(r.GetUpscaleMultiplier()-1.0f, 4.0f) * 3 , (downsample_rect.w * 2) - std::min(r.GetUpscaleMultiplier()-1.0f, 4.0f) * 3);
+			const GSVector4i downsample_rect = GSVector4i(0, 0, ((main_fb_size.x / 2)), ((main_fb_size.y / 2)));
+			const GSVector4i uv_rect = GSVector4i(0, 0, main_fb_size.x, main_fb_size.y);
 			r.ReplaceVerticesWithSprite(downsample_rect, uv_rect, main_fb_size, downsample_rect);
 			downsample_fb = GIFRegTEX0::Create(RFBP, RFBW, RFPSM);
 			state = 3;
 			GL_INS("GSC_BurnoutGames(): Downsampling.");
+			// Fix up the texture width so the native scaling code can properly detect it as a downscale.
+			RTBW = RFBW * 2;
 			return true;
 		}
 
@@ -1425,6 +1429,8 @@ bool GSHwHack::MV_Ico(GSRendererHW& r)
 	dst->UpdateValidChannels(PSMCT32, 0);
 	dst->UpdateValidity(draw_rc);
 	dst->UnscaleRTAlpha();
+	dst->m_alpha_min = 0;
+	dst->m_alpha_max = 255;
 
 	GSHWDrawConfig& config = GSRendererHW::GetInstance()->BeginHLEHardwareDraw(
 		dst->GetTexture(), nullptr, dst->GetScale(), src->GetTexture(), src->GetScale(), draw_rc);

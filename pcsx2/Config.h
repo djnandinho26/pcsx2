@@ -387,6 +387,14 @@ enum class GSHalfPixelOffset : u8
 	MaxCount
 };
 
+enum class GSNativeScaling : u8
+{
+	Off,
+	Normal,
+	Aggressive,
+	MaxCount
+};
+
 // --------------------------------------------------------------------------------------
 //  TraceFiltersEE
 // --------------------------------------------------------------------------------------
@@ -545,8 +553,6 @@ struct Pcsx2Config
 		FPControlRegister VU0FPCR;
 		FPControlRegister VU1FPCR;
 
-		u32 AffinityControlMode;
-
 		CpuOptions();
 		void LoadSave(SettingsWrapper& wrap);
 		void ApplySanityCheck();
@@ -630,7 +636,7 @@ struct Pcsx2Config
 					UserHacks_DisableSafeFeatures : 1,
 					UserHacks_DisableRenderFixes : 1,
 					UserHacks_MergePPSprite : 1,
-					UserHacks_WildHack : 1,
+					UserHacks_ForceEvenSpritePosition : 1,
 					UserHacks_NativePaletteDraw : 1,
 					UserHacks_EstimateTextureRegion : 1,
 					FXAA : 1,
@@ -692,6 +698,7 @@ struct Pcsx2Config
 		GSHWAutoFlushLevel UserHacks_AutoFlush = GSHWAutoFlushLevel::Disabled;
 		GSHalfPixelOffset UserHacks_HalfPixelOffset = GSHalfPixelOffset::Off;
 		s8 UserHacks_RoundSprite = 0;
+		GSNativeScaling UserHacks_NativeScaling = GSNativeScaling::Off;
 		s32 UserHacks_TCOffsetX = 0;
 		s32 UserHacks_TCOffsetY = 0;
 		u8 UserHacks_CPUSpriteRenderBW = 0;
@@ -1111,6 +1118,7 @@ struct Pcsx2Config
 	bool
 		CdvdVerboseReads : 1, // enables cdvd read activity verbosely dumped to the console
 		CdvdDumpBlocks : 1, // enables cdvd block dumping
+		CdvdPrecache : 1, // enables cdvd precaching of compressed images
 		EnablePatches : 1, // enables patch detection and application
 		EnableCheats : 1, // enables cheat detection and application
 		EnablePINE : 1, // enables inter-process communication
@@ -1118,6 +1126,7 @@ struct Pcsx2Config
 		EnableNoInterlacingPatches : 1,
 		EnableFastBoot : 1,
 		EnableFastBootFastForward : 1,
+		EnableThreadPinning : 1,
 		// TODO - Vaser - where are these settings exposed in the Qt UI?
 		EnableRecordingTools : 1,
 		EnableGameFixes : 1, // enables automatic game fixes
@@ -1235,7 +1244,11 @@ namespace EmuFolders
 
 // ------------ CPU / Recompiler Options ---------------
 
+#ifdef _M_X86 // TODO(Stenzek): Remove me once EE/VU/IOP recs are added.
 #define THREAD_VU1 (EmuConfig.Cpu.Recompiler.EnableVU1 && EmuConfig.Speedhacks.vuThread)
+#else
+#define THREAD_VU1 false
+#endif
 #define INSTANT_VU1 (EmuConfig.Speedhacks.vu1Instant)
 #define CHECK_EEREC (EmuConfig.Cpu.Recompiler.EnableEE)
 #define CHECK_CACHE (EmuConfig.Cpu.Recompiler.EnableEECache)
