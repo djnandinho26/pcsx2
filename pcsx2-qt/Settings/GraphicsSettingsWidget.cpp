@@ -124,6 +124,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.osdShowSettings, "EmuCore/GS", "OsdShowSettings", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.osdShowInputs, "EmuCore/GS", "OsdShowInputs", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.osdShowFrameTimes, "EmuCore/GS", "OsdShowFrameTimes", false);
+	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.osdShowVersion, "EmuCore/GS", "OsdShowVersion", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.warnAboutUnsafeSettings, "EmuCore", "WarnAboutUnsafeSettings", true);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.fxaa, "EmuCore/GS", "fxaa", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.shadeBoost, "EmuCore/GS", "ShadeBoost", false);
@@ -396,6 +397,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 			&GraphicsSettingsWidget::onEnableAudioCaptureArgumentsChanged);
 
 		onCaptureContainerChanged();
+		onCaptureCodecChanged();
 		onEnableVideoCaptureChanged();
 		onEnableVideoCaptureArgumentsChanged();
 		onVideoCaptureAutoResolutionChanged();
@@ -718,8 +720,11 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 		dialog->registerWidgetHelp(m_ui.osdShowInputs, tr("Show Inputs"), tr("Unchecked"),
 			tr("Shows the current controller state of the system in the bottom-left corner of the display."));
 
-		dialog->registerWidgetHelp(
-			m_ui.osdShowFrameTimes, tr("Show Frame Times"), tr("Unchecked"), tr("Displays a graph showing the average frametimes."));
+		dialog->registerWidgetHelp(m_ui.osdShowFrameTimes, tr("Show Frame Times"), tr("Unchecked"), 
+			tr("Displays a graph showing the average frametimes."));
+		
+		dialog->registerWidgetHelp(m_ui.osdShowVersion, tr("Show PCSX2 Version"), tr("Unchecked"),
+			tr("Shows the current PCSX2 version on the top-right corner of the display"));
 
 		dialog->registerWidgetHelp(m_ui.warnAboutUnsafeSettings, tr("Warn About Unsafe Settings"), tr("Checked"),
 			tr("Displays warnings when settings are enabled which may break games."));
@@ -728,6 +733,10 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 	// Recording tab
 	{
 		dialog->registerWidgetHelp(m_ui.videoCaptureCodec, tr("Video Codec"), tr("Default"), tr("Selects which Video Codec to be used for Video Capture. "
+		
+		"<b>If unsure, leave it on default.<b>"));
+
+		dialog->registerWidgetHelp(m_ui.videoCaptureFormat, tr("Video Format"), tr("Default"), tr("Selects which Video Format to be used for Video Capture. If by chance the codec does not support the format, the first format available will be used. "
 		
 		"<b>If unsure, leave it on default.<b>"));
 
@@ -779,7 +788,7 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsWindow* dialog, QWidget* 
 
 		dialog->registerWidgetHelp(m_ui.skipPresentingDuplicateFrames, tr("Skip Presenting Duplicate Frames"), tr("Unchecked"),
 			tr("Detects when idle frames are being presented in 25/30fps games, and skips presenting those frames. The frame is still "
-			   "rendered, it just means the GPU has more time to complete it (this is NOT frame skipping). Can smooth our frame time "
+			   "rendered, it just means the GPU has more time to complete it (this is NOT frame skipping). Can smooth out frame time "
 			   "fluctuations when the CPU/GPU are near maximum utilization, but makes frame pacing more inconsistent and can increase "
 			   "input lag."));
 
@@ -910,6 +919,7 @@ void GraphicsSettingsWidget::onCaptureContainerChanged()
 
 	SettingWidgetBinder::BindWidgetToStringSetting(
 		m_dialog->getSettingsInterface(), m_ui.videoCaptureCodec, "EmuCore/GS", "VideoCaptureCodec");
+	connect(m_ui.videoCaptureCodec, &QComboBox::currentIndexChanged, this, &GraphicsSettingsWidget::onCaptureCodecChanged);
 
 	m_ui.audioCaptureCodec->disconnect();
 	m_ui.audioCaptureCodec->clear();
@@ -923,6 +933,30 @@ void GraphicsSettingsWidget::onCaptureContainerChanged()
 
 	SettingWidgetBinder::BindWidgetToStringSetting(
 		m_dialog->getSettingsInterface(), m_ui.audioCaptureCodec, "EmuCore/GS", "AudioCaptureCodec");
+}
+
+void GraphicsSettingsWidget::GraphicsSettingsWidget::onCaptureCodecChanged()
+{
+	m_ui.videoCaptureFormat->disconnect();
+	m_ui.videoCaptureFormat->clear();
+	//: This string refers to a default pixel format
+	m_ui.videoCaptureFormat->addItem(tr("Default"), "");
+
+	const std::string codec(
+		m_dialog->getEffectiveStringValue("EmuCore/GS", "VideoCaptureCodec", ""));
+
+	if (!codec.empty())
+	{
+		for (const auto& [id, name] : GSCapture::GetVideoFormatList(codec.c_str()))
+		{
+			const QString qid(QString::number(id));
+			const QString qname(QString::fromStdString(name));
+			m_ui.videoCaptureFormat->addItem(qname, qid);
+		}
+	}
+
+	SettingWidgetBinder::BindWidgetToStringSetting(
+		m_dialog->getSettingsInterface(), m_ui.videoCaptureFormat, "EmuCore/GS", "VideoCaptureFormat");
 }
 
 void GraphicsSettingsWidget::onEnableVideoCaptureChanged()

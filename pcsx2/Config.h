@@ -621,6 +621,7 @@ struct Pcsx2Config
 					OsdShowSettings : 1,
 					OsdShowInputs : 1,
 					OsdShowFrameTimes : 1,
+					OsdShowVersion : 1,
 					HWSpinGPUForReadbacks : 1,
 					HWSpinCPUForReadbacks : 1,
 					GPUPaletteConversion : 1,
@@ -730,6 +731,7 @@ struct Pcsx2Config
 
 		std::string CaptureContainer = DEFAULT_CAPTURE_CONTAINER;
 		std::string VideoCaptureCodec;
+		std::string VideoCaptureFormat;
 		std::string VideoCaptureParameters;
 		std::string AudioCaptureCodec;
 		std::string AudioCaptureParameters;
