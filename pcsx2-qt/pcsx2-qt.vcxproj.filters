@@ -657,13 +657,25 @@
       <Filter>Settings</Filter>
     </QtUi>
     <QtUi Include="SetupWizardDialog.ui" />
+    <QtUi Include="Settings\USBBindingWidget_Buzz.ui">
+      <Filter>Settings</Filter>
+    </QtUi>
     <QtUi Include="Settings\USBBindingWidget_DrivingForce.ui">
+      <Filter>Settings</Filter>
+    </QtUi>
+    <QtUi Include="Settings\USBBindingWidget_Gametrak.ui">
       <Filter>Settings</Filter>
     </QtUi>
     <QtUi Include="Settings\USBBindingWidget_GTForce.ui">
       <Filter>Settings</Filter>
     </QtUi>
     <QtUi Include="Settings\USBBindingWidget_GunCon2.ui">
+      <Filter>Settings</Filter>
+    </QtUi>
+    <QtUi Include="Settings\USBBindingWidget_RealPlay.ui">
+      <Filter>Settings</Filter>
+    </QtUi>
+    <QtUi Include="Settings\USBBindingWidget_TranceVibrator.ui">
       <Filter>Settings</Filter>
     </QtUi>
     <QtUi Include="Settings\AudioExpansionSettingsDialog.ui">

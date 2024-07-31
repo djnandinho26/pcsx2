@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText: 2002-2023 PCSX2 Dev Team
-// SPDX-License-Identifier: LGPL-3.0+
+// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #include "Achievements.h"
 #include "CDVD/CDVD.h"
@@ -3612,7 +3612,7 @@ void VMManager::UpdateDiscordPresence(bool update_session_time)
 	rp.largeImageKey = "4k-pcsx2";
 	rp.largeImageText = "PCSX2 Emulator";
 	rp.startTimestamp = s_discord_presence_time_epoch;
-	rp.details = s_title.empty() ? "No Game Running" : s_title.c_str();
+	rp.details = s_title.empty() ?  TRANSLATE("VMManager","No Game Running") : s_title.c_str();
 
 	std::string state_string;
 	if (Achievements::HasRichPresence())

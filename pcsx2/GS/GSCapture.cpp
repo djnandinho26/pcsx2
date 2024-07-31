@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
-// SPDX-License-Identifier: LGPL-3.0+
+// SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/GSCapture.h"
 #include "GS/GSPng.h"
@@ -295,11 +295,13 @@ bool GSCapture::LoadFFmpeg(bool report_errors)
 	{
 		Host::ReportErrorAsync(TRANSLATE_SV("GSCapture","Failed to load FFmpeg"),
 			fmt::format(TRANSLATE_FS("GSCapture","You may be missing one or more files, or are using the incorrect version. This build of PCSX2 requires:\n"
-						"  libavcodec: {}\n"
-						"  libavformat: {}\n"
-						"  libavutil: {}\n"
-						"  libswscale: {}\n"
-				"  libswresample: {}\n"), LIBAVCODEC_VERSION_MAJOR, LIBAVFORMAT_VERSION_MAJOR, LIBAVUTIL_VERSION_MAJOR,
+				"  libavcodec: {}\n"
+				"  libavformat: {}\n"
+				"  libavutil: {}\n"
+				"  libswscale: {}\n"
+				"  libswresample: {}\n\n"
+				"Please see our official documentation for more information."), 
+				LIBAVCODEC_VERSION_MAJOR, LIBAVFORMAT_VERSION_MAJOR, LIBAVUTIL_VERSION_MAJOR,
 				LIBSWSCALE_VERSION_MAJOR, LIBSWRESAMPLE_VERSION_MAJOR));
 	}
 
