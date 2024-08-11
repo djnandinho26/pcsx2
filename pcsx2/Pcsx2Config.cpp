@@ -618,7 +618,8 @@ Pcsx2Config::GSOptions::GSOptions()
 	DisableFramebufferFetch = false;
 	DisableVertexShaderExpand = false;
 	SkipDuplicateFrames = false;
-	OsdShowMessages = true;
+	OsdMessagesPos = OsdOverlayPos::TopLeft;
+	OsdPerformancePos = OsdOverlayPos::TopRight;
 	OsdShowSpeed = false;
 	OsdShowFPS = false;
 	OsdShowCPU = false;
@@ -630,6 +631,9 @@ Pcsx2Config::GSOptions::GSOptions()
 	OsdShowInputs = false;
 	OsdShowFrameTimes = false;
 	OsdShowVersion = false;
+	OsdShowHardwareInfo = false;
+	OsdShowVideoCapture = true;
+	OsdShowInputRec = true;
 
 	HWDownloadMode = GSHardwareDownloadMode::Enabled;
 	HWSpinGPUForReadbacks = false;
@@ -699,6 +703,8 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 		OpEqu(Crop[3]) &&
 
 		OpEqu(OsdScale) &&
+		OpEqu(OsdMessagesPos) &&
+		OpEqu(OsdPerformancePos) &&
 
 		OpEqu(Renderer) &&
 		OpEqu(UpscaleMultiplier) &&
@@ -824,7 +830,6 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitBool(DisableFramebufferFetch);
 	SettingsWrapBitBool(DisableVertexShaderExpand);
 	SettingsWrapBitBool(SkipDuplicateFrames);
-	SettingsWrapBitBool(OsdShowMessages);
 	SettingsWrapBitBool(OsdShowSpeed);
 	SettingsWrapBitBool(OsdShowFPS);
 	SettingsWrapBitBool(OsdShowCPU);
@@ -836,6 +841,9 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitBool(OsdShowInputs);
 	SettingsWrapBitBool(OsdShowFrameTimes);
 	SettingsWrapBitBool(OsdShowVersion);
+	SettingsWrapBitBool(OsdShowHardwareInfo);
+	SettingsWrapBitBool(OsdShowVideoCapture);
+	SettingsWrapBitBool(OsdShowInputRec);
 
 	SettingsWrapBitBool(HWSpinGPUForReadbacks);
 	SettingsWrapBitBool(HWSpinCPUForReadbacks);
@@ -883,6 +891,8 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapIntEnumEx(InterlaceMode, "deinterlace_mode");
 
 	SettingsWrapEntry(OsdScale);
+	SettingsWrapIntEnumEx(OsdMessagesPos, "OsdMessagesPos");
+	SettingsWrapIntEnumEx(OsdPerformancePos, "OsdPerformancePos");
 
 	SettingsWrapIntEnumEx(Renderer, "Renderer");
 	SettingsWrapEntryEx(UpscaleMultiplier, "upscale_multiplier");

@@ -233,7 +233,7 @@ bool VMManager::PerformEarlyHardwareChecks(const char** error)
 	const size_t runtime_host_page_size = HostSys::GetRuntimePageSize();
 	if (__pagesize != runtime_host_page_size)
 	{
-		*error = "Page size mismatch. This build cannot run on your Mac.\n\n" COMMON_DOWNLOAD_MESSAGE;
+		*error = "Page size mismatch. This build cannot run on your system.\n\n" COMMON_DOWNLOAD_MESSAGE;
 		return false;
 	}
 #endif
@@ -2370,8 +2370,7 @@ inline void LogUserPowerPlan()
 }
 #endif
 
-#if 0
-#if defined(__linux__) || defined(_WIN32)
+#if defined(_WIN32)
 void LogGPUCapabilities()
 {
 	Console.WriteLn(Color_StrongBlack, "Graphics Adapters Detected:");
@@ -2484,7 +2483,6 @@ void LogGPUCapabilities()
 #endif
 }
 #endif
-#endif
 
 void VMManager::LogCPUCapabilities()
 {
@@ -2532,7 +2530,7 @@ void VMManager::LogCPUCapabilities()
 	}
 #endif
 
-#if 0
+#if defined(_WIN32)
 	LogGPUCapabilities();
 #endif
 }
