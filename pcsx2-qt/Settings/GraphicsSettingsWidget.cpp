@@ -931,12 +931,14 @@ void GraphicsSettingsWidget::onPerformancePosChanged()
 {
 	const bool enabled = m_ui.osdPerformancePos->currentIndex() != (m_dialog->isPerGameSettings() ? 1 : 0);
 
+	m_ui.osdShowVPS->setEnabled(enabled);
 	m_ui.osdShowSpeed->setEnabled(enabled);
 	m_ui.osdShowFPS->setEnabled(enabled);
 	m_ui.osdShowCPU->setEnabled(enabled);
 	m_ui.osdShowGPU->setEnabled(enabled);
 	m_ui.osdShowResolution->setEnabled(enabled);
 	m_ui.osdShowGSStats->setEnabled(enabled);
+	m_ui.osdShowHardwareInfo->setEnabled(enabled);
 	m_ui.osdShowIndicators->setEnabled(enabled);
 	m_ui.osdShowFrameTimes->setEnabled(enabled);
 	m_ui.osdShowVersion->setEnabled(enabled);
@@ -1137,13 +1139,13 @@ void GraphicsSettingsWidget::updateRendererDependentOptions()
 		std::string current_adapter = Host::GetBaseStringSettingValue("EmuCore/GS", "Adapter", "");
 		m_ui.adapterDropdown->clear();
 		m_ui.adapterDropdown->setEnabled(!adapters.empty());
-		m_ui.adapterDropdown->addItem(tr("(Default)"));
+		m_ui.adapterDropdown->addItem(GetDefaultAdapter().c_str());
 		m_ui.adapterDropdown->setCurrentIndex(0);
 
 		if (m_dialog->isPerGameSettings())
 		{
 			m_ui.adapterDropdown->insertItem(
-				0, tr("Use Global Setting [%1]").arg(current_adapter.empty() ? tr("(Default)") : QString::fromStdString(current_adapter)));
+				0, tr("Use Global Setting [%1]").arg(current_adapter.empty() ? GetDefaultAdapter().c_str() : QString::fromStdString(current_adapter)));
 			if (!m_dialog->getSettingsInterface()->GetStringValue("EmuCore/GS", "Adapter", &current_adapter))
 			{
 				// clear the adapter so we don't set it to the global value

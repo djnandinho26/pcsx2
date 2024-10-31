@@ -7,7 +7,7 @@
 #include "Counters.h"
 #include "DEV9/DEV9.h"
 #include "DebugTools/DebugInterface.h"
-#include "DebugTools/SymbolGuardian.h"
+#include "DebugTools/SymbolImporter.h"
 #include "Elfheader.h"
 #include "FW.h"
 #include "GS.h"
@@ -447,14 +447,12 @@ void VMManager::Internal::CPUThreadShutdown()
 	// Ensure emulog gets flushed.
 	Log::SetFileOutputLevel(LOGLEVEL_NONE, std::string());
 
-	R3000SymbolGuardian.ShutdownWorkerThread();
-	R5900SymbolGuardian.ShutdownWorkerThread();
+	R5900SymbolImporter.ShutdownWorkerThread();
 }
 
 void VMManager::Internal::SetFileLogPath(std::string path)
 {
 	s_log_force_file_log = Log::SetFileOutputLevel(LOGLEVEL_DEBUG, std::move(path));
-	emuLog = Log::GetFileLogHandle();
 }
 
 void VMManager::Internal::SetBlockSystemConsole(bool block)
@@ -477,12 +475,6 @@ void VMManager::UpdateLoggingSettings(SettingsInterface& si)
 	if (system_console_enabled != Log::IsConsoleOutputEnabled())
 		Log::SetConsoleOutputLevel(system_console_enabled ? level : LOGLEVEL_NONE);
 
-	if (file_logging_enabled != Log::IsFileOutputEnabled())
-	{
-		std::string path = Path::Combine(EmuFolders::Logs, "emulog.txt");
-		Log::SetFileOutputLevel(file_logging_enabled ? level : LOGLEVEL_NONE, std::move(path));
-	}
-
 	// Debug console only exists on Windows.
 #ifdef _WIN32
 	const bool debug_console_enabled = IsDebuggerPresent() && si.GetBoolValue("Logging", "EnableDebugConsole", false);
@@ -497,17 +489,26 @@ void VMManager::UpdateLoggingSettings(SettingsInterface& si)
 	const bool any_logging_sinks = system_console_enabled || log_window_enabled || file_logging_enabled || debug_console_enabled;
 
 	const bool ee_console_enabled = any_logging_sinks && si.GetBoolValue("Logging", "EnableEEConsole", false);
-	SysConsole.eeConsole.Enabled = ee_console_enabled;
+	ConsoleLogging.eeConsole.Enabled = ee_console_enabled;
 
-	SysConsole.iopConsole.Enabled = any_logging_sinks && si.GetBoolValue("Logging", "EnableIOPConsole", false);
-	SysTrace.IOP.R3000A.Enabled = true;
-	SysTrace.IOP.COP2.Enabled = true;
-	SysTrace.IOP.Memory.Enabled = true;
-	SysTrace.SIF.Enabled = true;
+	ConsoleLogging.iopConsole.Enabled = any_logging_sinks && si.GetBoolValue("Logging", "EnableIOPConsole", false);
+	TraceLogging.IOP.R3000A.Enabled = true;
+	TraceLogging.IOP.COP2.Enabled = true;
+	TraceLogging.IOP.Memory.Enabled = true;
+	TraceLogging.SIF.Enabled = true;
 
 	// Input Recording Logs
-	SysConsole.recordingConsole.Enabled = any_logging_sinks && si.GetBoolValue("Logging", "EnableInputRecordingLogs", true);
-	SysConsole.controlInfo.Enabled = any_logging_sinks && si.GetBoolValue("Logging", "EnableControllerLogs", false);
+	ConsoleLogging.recordingConsole.Enabled = any_logging_sinks && si.GetBoolValue("Logging", "EnableInputRecordingLogs", true);
+	ConsoleLogging.controlInfo.Enabled = any_logging_sinks && si.GetBoolValue("Logging", "EnableControllerLogs", false);
+
+	// Sync the trace settings with the config.
+	EmuConfig.Trace.SyncToConfig();
+	// Set the output level if file logging or trace logs have changed.
+	if (file_logging_enabled != Log::IsFileOutputEnabled() || (EmuConfig.Trace.Enabled && Log::GetMaxLevel() < LOGLEVEL_TRACE))
+	{
+		std::string path = Path::Combine(EmuFolders::Logs, "emulog.txt");
+		Log::SetFileOutputLevel(file_logging_enabled ? EmuConfig.Trace.Enabled ? LOGLEVEL_TRACE : level : LOGLEVEL_NONE, std::move(path));
+	}
 }
 
 void VMManager::SetDefaultLoggingSettings(SettingsInterface& si)
@@ -520,6 +521,11 @@ void VMManager::SetDefaultLoggingSettings(SettingsInterface& si)
 	si.SetBoolValue("Logging", "EnableIOPConsole", false);
 	si.SetBoolValue("Logging", "EnableInputRecordingLogs", true);
 	si.SetBoolValue("Logging", "EnableControllerLogs", false);
+
+	EmuConfig.Trace.Enabled = false;
+	EmuConfig.Trace.EE.bitset = 0;
+	EmuConfig.Trace.IOP.bitset = 0;
+	EmuConfig.Trace.MISC.bitset = 0;
 }
 
 bool VMManager::Internal::CheckSettingsVersion()
@@ -1154,24 +1160,7 @@ void VMManager::UpdateELFInfo(std::string elf_path)
 	s_elf_text_range = elfo.GetTextRange();
 	s_elf_path = std::move(elf_path);
 
-	R5900SymbolGuardian.Reset();
-
-	// Search for a .sym file to load symbols from.
-	std::string nocash_path;
-	CDVD_SourceType source_type = CDVDsys_GetSourceType();
-	if (source_type == CDVD_SourceType::Iso)
-	{
-		std::string iso_file_path = CDVDsys_GetFile(source_type);
-
-		std::string::size_type n = iso_file_path.rfind('.');
-		if (n == std::string::npos)
-			nocash_path = iso_file_path + ".sym";
-		else
-			nocash_path = iso_file_path.substr(0, n) + ".sym";
-	}
-
-	// Load the symbols stored in the ELF file.
-	R5900SymbolGuardian.ImportElf(elfo.ReleaseData(), s_elf_path, nocash_path);
+	R5900SymbolImporter.OnElfChanged(elfo.ReleaseData(), s_elf_path);
 }
 
 void VMManager::ClearELFInfo()
@@ -1430,9 +1419,9 @@ bool VMManager::Initialize(VMBootParameters boot_params)
 
 				Achievements::ConfirmHardcoreModeDisableAsync(trigger,
 					[boot_params = std::move(boot_params)](bool approved) mutable {
-					if (approved && Initialize(std::move(boot_params)))
-						SetState(VMState::Running);
-				});
+						if (approved && Initialize(std::move(boot_params)))
+							SetState(VMState::Running);
+					});
 
 				return false;
 			}
@@ -3115,7 +3104,7 @@ void VMManager::WarnAboutUnsafeSettings()
 		append(ICON_FA_TACHOMETER_ALT,
 			TRANSLATE_SV("VMManager", "Cycle rate/skip is not at default, this may crash or make games run too slow."));
 	}
-	
+
 	const bool is_sw_renderer = EmuConfig.GS.Renderer == GSRendererType::SW;
 	if (!is_sw_renderer)
 	{
@@ -3164,6 +3153,15 @@ void VMManager::WarnAboutUnsafeSettings()
 		{
 			append(ICON_FA_IMAGES,
 				TRANSLATE_SV("VMManager", "Mipmapping is disabled. This may break rendering in some games."));
+		}
+		static bool render_change_warn = false;
+		if (EmuConfig.GS.Renderer != GSRendererType::Auto && EmuConfig.GS.Renderer != GSRendererType::SW && !render_change_warn)
+		{
+			// show messagesbox
+			render_change_warn = true;
+
+			append(ICON_FA_EXCLAMATION_CIRCLE,
+				TRANSLATE_SV("VMManager", "Renderer is not set to Automatic. This may cause performance problems and graphical issues."));
 		}
 	}
 	if (EmuConfig.GS.TextureFiltering != BiFiltering::PS2)
@@ -3632,7 +3630,7 @@ void VMManager::UpdateDiscordPresence(bool update_session_time)
 	rp.largeImageKey = "4k-pcsx2";
 	rp.largeImageText = "PCSX2 PS2 Emulator";
 	rp.startTimestamp = s_discord_presence_time_epoch;
-	rp.details = s_title.empty() ?  TRANSLATE("VMManager","No Game Running") : s_title.c_str();
+	rp.details = s_title.empty() ? TRANSLATE("VMManager", "No Game Running") : s_title.c_str();
 
 	std::string state_string;
 
