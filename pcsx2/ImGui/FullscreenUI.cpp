@@ -3,6 +3,7 @@
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include "BuildVersion.h"
 #include "CDVD/CDVDcommon.h"
 #include "GS/Renderers/Common/GSDevice.h"
 #include "GS/Renderers/Common/GSTexture.h"
@@ -23,7 +24,6 @@
 #include "USB/USB.h"
 #include "VMManager.h"
 #include "ps2/BiosTools.h"
-#include "svnrev.h"
 
 #include "common/Console.h"
 #include "common/Error.h"
@@ -3168,6 +3168,9 @@ void FullscreenUI::DrawInterfaceSettingsPage()
 	DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_ARCHIVE, "Create Save State Backups"),
 		FSUI_CSTR("Creates a backup copy of a save state if it already exists when the save is created. The backup copy has a .backup suffix"),
 		"EmuCore", "BackupSavestate", true);
+	DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_INFO_CIRCLE, "Use Save State Selector"),
+		FSUI_CSTR("Show a save state selector UI when switching slots instead of showing a notification bubble."),
+		"EmuCore", "UseSavestateSelector", true);
 	if (DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_LIGHTBULB, "Use Light Theme"),
 			FSUI_CSTR("Uses a light coloured theme instead of the default dark theme."), "UI", "UseLightFullscreenUITheme", false))
 	{
@@ -6221,12 +6224,22 @@ void FullscreenUI::DrawGameGrid(const ImVec2& heading_size)
 	SmallString draw_title;
 
 	u32 grid_x = 0;
-	ImGui::SetCursorPos(ImVec2(start_x, 0.0f));
 	for (const GameList::Entry* entry : s_game_list_sorted_entries)
 	{
 		ImGuiWindow* window = ImGui::GetCurrentWindow();
 		if (window->SkipItems)
 			continue;
+
+		if (grid_x == grid_count_x)
+		{
+			grid_x = 0;
+			ImGui::SetCursorPosX(start_x);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + item_spacing);
+		}
+		else
+		{
+			ImGui::SameLine(start_x + static_cast<float>(grid_x) * (item_width + item_spacing));
+		}
 
 		const ImGuiID id = window->GetID(entry->path.c_str(), entry->path.c_str() + entry->path.length());
 		const ImVec2 pos(window->DC.CursorPos);
@@ -6280,16 +6293,6 @@ void FullscreenUI::DrawGameGrid(const ImVec2& heading_size)
 		}
 
 		grid_x++;
-		if (grid_x == grid_count_x)
-		{
-			grid_x = 0;
-			ImGui::SetCursorPosX(start_x);
-			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + item_spacing);
-		}
-		else
-		{
-			ImGui::SameLine(start_x + static_cast<float>(grid_x) * (item_width + item_spacing));
-		}
 	}
 
 	EndMenuButtons();
@@ -6630,7 +6633,7 @@ void FullscreenUI::DrawAboutWindow()
 									 "This allows you to play PS2 games on your PC, with many additional features and benefits."));
 		ImGui::NewLine();
 
-		ImGui::TextWrapped(FSUI_CSTR("Version: %s"), GIT_REV);
+		ImGui::TextWrapped(FSUI_CSTR("Version: %s"), BuildVersion::GitRev);
 		ImGui::NewLine();
 
 		ImGui::TextWrapped("%s",
@@ -6972,6 +6975,7 @@ TRANSLATE_NOOP("FullscreenUI", "Pauses the emulator when you open the quick menu
 TRANSLATE_NOOP("FullscreenUI", "Determines whether a prompt will be displayed to confirm shutting down the emulator/game when the hotkey is pressed.");
 TRANSLATE_NOOP("FullscreenUI", "Automatically saves the emulator state when powering down or exiting. You can then resume directly from where you left off next time.");
 TRANSLATE_NOOP("FullscreenUI", "Creates a backup copy of a save state if it already exists when the save is created. The backup copy has a .backup suffix");
+TRANSLATE_NOOP("FullscreenUI", "Show a save state selector UI when switching slots instead of showing a notification bubble.");
 TRANSLATE_NOOP("FullscreenUI", "Uses a light coloured theme instead of the default dark theme.");
 TRANSLATE_NOOP("FullscreenUI", "Game Display");
 TRANSLATE_NOOP("FullscreenUI", "Automatically switches to fullscreen mode when a game is started.");
@@ -7634,6 +7638,7 @@ TRANSLATE_NOOP("FullscreenUI", "Pause On Menu");
 TRANSLATE_NOOP("FullscreenUI", "Confirm Shutdown");
 TRANSLATE_NOOP("FullscreenUI", "Save State On Shutdown");
 TRANSLATE_NOOP("FullscreenUI", "Create Save State Backups");
+TRANSLATE_NOOP("FullscreenUI", "Use Save State Selector");
 TRANSLATE_NOOP("FullscreenUI", "Use Light Theme");
 TRANSLATE_NOOP("FullscreenUI", "Start Fullscreen");
 TRANSLATE_NOOP("FullscreenUI", "Double-Click Toggles Fullscreen");

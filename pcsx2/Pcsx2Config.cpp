@@ -1625,6 +1625,8 @@ void Pcsx2Config::DebugAnalysisOptions::LoadSave(SettingsWrapper& wrap)
 			file = ExtraSymbolFiles[i];
 
 		SettingsWrapEntryEx(file.Path, "Path");
+		SettingsWrapEntryEx(file.BaseAddress, "BaseAddress");
+		SettingsWrapEntryEx(file.Condition, "Condition");
 
 		if (wrap.IsLoading())
 			ExtraSymbolFiles.emplace_back(std::move(file));
@@ -1928,6 +1930,7 @@ void Pcsx2Config::LoadSaveCore(SettingsWrapper& wrap)
 	SettingsWrapBitBool(EnableRecordingTools);
 	SettingsWrapBitBool(EnableGameFixes);
 	SettingsWrapBitBool(SaveStateOnShutdown);
+	SettingsWrapBitBool(UseSavestateSelector);
 	SettingsWrapBitBool(EnableDiscordPresence);
 	SettingsWrapBitBool(InhibitScreensaver);
 	SettingsWrapBitBool(HostFs);

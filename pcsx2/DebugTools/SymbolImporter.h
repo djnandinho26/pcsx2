@@ -43,8 +43,27 @@ public:
 		const ccc::ElfSymbolFile& elf,
 		const std::string& nocash_path,
 		const Pcsx2Config::DebugAnalysisOptions& options,
+		const std::map<std::string, ccc::DataTypeHandle>& builtin_types,
 		const std::atomic_bool* interrupt);
-	static bool ImportNocashSymbols(ccc::SymbolDatabase& database, const std::string& file_path);
+
+	static void ImportExtraSymbols(
+		ccc::SymbolDatabase& database,
+		const Pcsx2Config::DebugAnalysisOptions& options,
+		const std::map<std::string, ccc::DataTypeHandle>& builtin_types,
+		u32 importer_flags,
+		const ccc::DemanglerFunctions& demangler,
+		const std::atomic_bool* interrupt);
+
+	static ccc::Result<bool> ImportNocashSymbols(
+		ccc::SymbolDatabase& database,
+		const std::string& file_path,
+		u32 base_address,
+		const std::map<std::string, ccc::DataTypeHandle>& builtin_types);
+
+	static std::unique_ptr<ccc::ast::Node> GetBuiltInType(
+		const std::string& name,
+		ccc::ast::BuiltInClass bclass,
+		const std::map<std::string, ccc::DataTypeHandle>& builtin_types);
 
 	static void ScanForFunctions(
 		ccc::SymbolDatabase& database, const ccc::ElfSymbolFile& elf, const Pcsx2Config::DebugAnalysisOptions& options);
@@ -57,6 +76,8 @@ protected:
 
 	std::thread m_import_thread;
 	std::atomic_bool m_interrupt_import_thread = false;
+
+	std::map<std::string, ccc::DataTypeHandle> m_builtin_types;
 };
 
 extern SymbolImporter R5900SymbolImporter;

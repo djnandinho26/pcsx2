@@ -1588,6 +1588,14 @@ SCAJ-20105:
     recommendedBlendingLevel: 3 # Fixes level brightness.
     cpuSpriteRenderBW: 2 # Fixes broken water on "Upper Sea" level.
     cpuSpriteRenderLevel: 2 # Needed for above.
+  dynaPatches:
+    - pattern:
+        - { offset: 0x0, value: 0x3C023E4C }
+        - { offset: 0x4, value: 0x3442CCCD }
+        - { offset: 0x8, value: 0xE7A300D0 }
+        - { offset: 0xC, value: 0xE7A200D4 }
+      replacement:
+        - { offset: 0x4, value: 0x3442CCE0 }
 SCAJ-20107:
   name: "Bakufuu Slash! Kizna Arashi"
   region: "NTSC-Unk"
@@ -2615,7 +2623,7 @@ SCED-50642:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -2742,7 +2750,7 @@ SCED-50907:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -4451,7 +4459,7 @@ SCES-50490:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -4463,7 +4471,7 @@ SCES-50491:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -4476,7 +4484,7 @@ SCES-50492:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -4488,7 +4496,7 @@ SCES-50493:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -4500,7 +4508,7 @@ SCES-50494:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -6914,6 +6922,14 @@ SCKA-20047:
     - "SCKA-20047"
     - "SLKA-25201"
     - "SLKA-25202"
+  dynaPatches:
+    - pattern:
+        - { offset: 0x0, value: 0x3C023E4C }
+        - { offset: 0x4, value: 0x3442CCCD }
+        - { offset: 0x8, value: 0xE7A300D0 }
+        - { offset: 0xC, value: 0xE7A200D4 }
+      replacement:
+        - { offset: 0x4, value: 0x3442CCE0 }
 SCKA-20048:
   name: "Killzone"
   region: "NTSC-K"
@@ -22781,11 +22797,27 @@ SLES-53687:
   name: "NBA 2K6"
   region: "PAL-M5"
   patches:
-    04808D11:
+    4047DB34: # English
       content: |-
         author=Prafull
         comment=fixes hang at start
         patch=1,EE,00441ff8,word,00000000
+    B91D81A3: # French
+      content: |-
+        comment=fixes hang at start
+        patch=1,EE,00441fa0,word,00000000
+    C96E2007: # German
+      content: |-
+        comment=fixes hang at start
+        patch=1,EE,00441e48,word,00000000
+    79A6C879: # Italian
+      content: |-
+        comment=fixes hang at start
+        patch=1,EE,00441de8,word,00000000
+    08349AAF: # Spanish
+      content: |-
+        comment=fixes hang at start
+        patch=1,EE,00441ec8,word,00000000
 SLES-53689:
   name: "World Poker Tour 2K6"
   region: "PAL-M3"
@@ -23229,6 +23261,14 @@ SLES-53819:
     - "SLES-53819"
     - "SLES-82036"
     - "SLES-82037"
+  dynaPatches:
+    - pattern:
+        - { offset: 0x0, value: 0x3C023E4C }
+        - { offset: 0x4, value: 0x3442CCCD }
+        - { offset: 0x8, value: 0xE7A300D0 }
+        - { offset: 0xC, value: 0xE7A200D4 }
+      replacement:
+        - { offset: 0x4, value: 0x3442CCE0 }
 SLES-53820:
   name: "Armored Core - Last Raven"
   region: "PAL-E"
@@ -29780,12 +29820,12 @@ SLKA-25214:
   name: "Final Fantasy X - International [PlayStation 2 - Big Hit Series]"
   region: "NTSC-K"
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
-    vu0ClampMode: 3 # Fixes character flickering caused by EE clamp full.
   gsHWFixes:
     roundSprite: 2 # Fixes font artifacts.
+    autoFlush: 1 # Fixes blur effect on attacks.
 SLKA-25215:
   name: "Shining Wind"
   region: "NTSC-K"
@@ -35406,6 +35446,8 @@ SLPM-62482:
   name-sort: "ぱちすろとうこんでんしょう いのきまつり あんとにおいのきというなのぱちすろき あんとにおいのきじしんがぱちすろき"
   name-en: "Pachinko Slot Tokodensho - Inoki Festival"
   region: "NTSC-J"
+  gsHWFixes:
+    textureInsideRT: 1 # Fixes on screen garbage.
 SLPM-62483:
   name: "SIMPLE2000シリーズ Vol.48 THE タクシー 〜運転手は君だ〜"
   name-sort: "しんぷる2000しりーず Vol.48 THE たくしー うんてんしゅはきみだ"
@@ -37641,12 +37683,12 @@ SLPM-65115:
   name-en: "Final Fantasy X International"
   region: "NTSC-J"
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
-    vu0ClampMode: 3 # Fixes character flickering caused by EE clamp full.
   gsHWFixes:
     roundSprite: 2 # Fixes font artifacts.
+    autoFlush: 1 # Fixes blur effect on attacks.
 SLPM-65116:
   name: "リリーのアトリエ プラス 〜ザールブルグの錬金術士3〜"
   name-sort: "りりーのあとりえ ぷらす 〜ざーるぶるぐのれんきんじゅつし3〜"
@@ -43332,7 +43374,7 @@ SLPM-66124:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -46745,12 +46787,12 @@ SLPM-66677:
   name-en: "Final Fantasy X - International [Ultimate Hits]"
   region: "NTSC-J"
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
-    vu0ClampMode: 3 # Fixes character flickering caused by EE clamp full.
   gsHWFixes:
     roundSprite: 2 # Fixes font artifacts.
+    autoFlush: 1 # Fixes blur effect on attacks.
 SLPM-66678:
   name: "ファイナルファンタジーX-2 インターナショナル+ラストミッション [アルティメットヒッツ]"
   name-sort: "ふぁいなるふぁんたじー10-2 いんたーなしょなる+らすとみっしょん [あるてぃめっとひっつ]"
@@ -48710,12 +48752,12 @@ SLPM-67513:
   name: "Final Fantasy X International"
   region: "NTSC-K"
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
-    vu0ClampMode: 3 # Fixes character flickering caused by EE clamp full.
   gsHWFixes:
     roundSprite: 2 # Fixes font artifacts.
+    autoFlush: 1 # Fixes blur effect on attacks.
 SLPM-67514:
   name: "Kessen"
   region: "NTSC-K"
@@ -52241,7 +52283,7 @@ SLPS-25050:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -52448,12 +52490,12 @@ SLPS-25088:
   region: "NTSC-J"
   compat: 5
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
-    vu0ClampMode: 3 # Fixes character flickering caused by EE clamp full.
   gsHWFixes:
     roundSprite: 2 # Fixes font artifacts.
+    autoFlush: 1 # Fixes blur effect on attacks.
 SLPS-25089:
   name: "Salt Lake 2002"
   region: "NTSC-J"
@@ -54257,6 +54299,14 @@ SLPS-25408:
     - "SLPS-25339"
     - "SLPS-73202"
     - "SLPS-73203"
+  dynaPatches:
+    - pattern:
+        - { offset: 0x0, value: 0x3C023E4C }
+        - { offset: 0x4, value: 0x3442CCCD }
+        - { offset: 0x8, value: 0xE7A300D0 }
+        - { offset: 0xC, value: 0xE7A200D4 }
+      replacement:
+        - { offset: 0x4, value: 0x3442CCE0 }
 SLPS-25409:
   name: "双恋—フタコイ— 初回限定版"
   name-sort: "ふたこい しょかいげんていばん"
@@ -57535,7 +57585,7 @@ SLPS-72501:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -59686,7 +59736,7 @@ SLUS-20312:
   gameFixes:
     - SoftwareRendererFMVHack # Fixes interlacing.
   roundModes:
-    eeRoundMode: 1 # Fixes reverse control and boss in some places.
+    eeRoundMode: 2 # Fixes reverse control and boss in some places.
   clampModes:
     eeClampMode: 3 # Fixes animations.
   gsHWFixes:
@@ -64574,6 +64624,14 @@ SLUS-21200:
     - "SLUS-21200"
     - "SLUS-20986"
     - "SLUS-21079"
+  dynaPatches:
+    - pattern:
+        - { offset: 0x0, value: 0x3C023E4C }
+        - { offset: 0x4, value: 0x3442CCCD }
+        - { offset: 0x8, value: 0xE7A300D0 }
+        - { offset: 0xC, value: 0xE7A200D4 }
+      replacement:
+        - { offset: 0x4, value: 0x3442CCE0 }
 SLUS-21201:
   name: "Tales of Legendia"
   region: "NTSC-U"

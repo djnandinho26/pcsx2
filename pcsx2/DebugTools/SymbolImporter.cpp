@@ -126,6 +126,7 @@ void SymbolImporter::Reset()
 
 	m_guardian.ReadWrite([&](ccc::SymbolDatabase& database) {
 		database.clear();
+		m_builtin_types.clear();
 
 		ccc::Result<ccc::SymbolSourceHandle> source = database.get_symbol_source("Built-In");
 		if (!source.success())
@@ -145,6 +146,8 @@ void SymbolImporter::Reset()
 			type->size_bytes = ccc::ast::builtin_class_size(default_type.bclass);
 			type->bclass = default_type.bclass;
 			(*symbol)->set_type(std::move(type));
+
+			m_builtin_types.emplace(default_type.name, (*symbol)->handle());
 		}
 	});
 }
@@ -193,12 +196,12 @@ void SymbolImporter::AnalyseElf(
 
 	ShutdownWorkerThread();
 
-	m_import_thread = std::thread([this, nocash_path, options, worker_symbol_file = std::move(symbol_file)]() {
+	m_import_thread = std::thread([this, nocash_path, options, worker_symbol_file = std::move(symbol_file), builtins = m_builtin_types]() {
 		Threading::SetNameOfCurrentThread("Symbol Worker");
 
 		ccc::SymbolDatabase temp_database;
 
-		ImportSymbols(temp_database, worker_symbol_file, nocash_path, options, &m_interrupt_import_thread);
+		ImportSymbols(temp_database, worker_symbol_file, nocash_path, options, builtins, &m_interrupt_import_thread);
 
 		if (m_interrupt_import_thread)
 			return;
@@ -212,11 +215,6 @@ void SymbolImporter::AnalyseElf(
 		if (m_interrupt_import_thread)
 			return;
 
-		ScanForFunctions(temp_database, worker_symbol_file, options);
-
-		if (m_interrupt_import_thread)
-			return;
-
 		m_guardian.ReadWrite([&](ccc::SymbolDatabase& database) {
 			ClearExistingSymbols(database, options);
 
@@ -224,6 +222,14 @@ void SymbolImporter::AnalyseElf(
 				return;
 
 			database.merge_from(temp_database);
+
+			if (m_interrupt_import_thread)
+				return;
+
+			// The function scanner has to be run on the main database so that
+			// functions created before the importer was run are still
+			// considered. Otherwise, duplicate functions will be created.
+			ScanForFunctions(database, worker_symbol_file, options);
 		});
 	});
 }
@@ -270,15 +276,9 @@ void SymbolImporter::ImportSymbols(
 	const ccc::ElfSymbolFile& elf,
 	const std::string& nocash_path,
 	const Pcsx2Config::DebugAnalysisOptions& options,
+	const std::map<std::string, ccc::DataTypeHandle>& builtin_types,
 	const std::atomic_bool* interrupt)
 {
-	ccc::DemanglerFunctions demangler;
-	if (options.DemangleSymbols)
-	{
-		demangler.cplus_demangle = cplus_demangle;
-		demangler.cplus_demangle_opname = cplus_demangle_opname;
-	}
-
 	u32 importer_flags =
 		ccc::NO_MEMBER_FUNCTIONS |
 		ccc::NO_OPTIMIZED_OUT_FUNCTIONS |
@@ -286,6 +286,13 @@ void SymbolImporter::ImportSymbols(
 
 	if (options.DemangleParameters)
 		importer_flags |= ccc::DEMANGLE_PARAMETERS;
+
+	ccc::DemanglerFunctions demangler;
+	if (options.DemangleSymbols)
+	{
+		demangler.cplus_demangle = cplus_demangle;
+		demangler.cplus_demangle_opname = cplus_demangle_opname;
+	}
 
 	if (options.ImportSymbolsFromELF)
 	{
@@ -297,7 +304,7 @@ void SymbolImporter::ImportSymbols(
 		else
 		{
 			ccc::Result<ccc::ModuleHandle> module_handle = ccc::import_symbol_tables(
-				database, elf.name(), *symbol_tables, importer_flags, demangler, interrupt);
+				database, *symbol_tables, elf.name(), ccc::Address(), importer_flags, demangler, interrupt);
 			if (!module_handle.success())
 			{
 				ccc::report_error(module_handle.error());
@@ -307,40 +314,103 @@ void SymbolImporter::ImportSymbols(
 
 	if (!nocash_path.empty() && options.ImportSymFileFromDefaultLocation)
 	{
-		if (!ImportNocashSymbols(database, nocash_path))
-			Console.Error("Failed to read symbol file from default location '%s'.", nocash_path.c_str());
+		ccc::Result<bool> nocash_result = ImportNocashSymbols(database, nocash_path, 0, builtin_types);
+		if (!nocash_result.success())
+		{
+			Console.Error("Failed to import symbol file '%s': %s",
+				nocash_path.c_str(), nocash_result.error().message.c_str());
+		}
 	}
+
+	ImportExtraSymbols(database, options, builtin_types, importer_flags, demangler, interrupt);
+
+	Console.WriteLn("Imported %d symbols.", database.symbol_count());
+
+	return;
+}
+
+void SymbolImporter::ImportExtraSymbols(
+	ccc::SymbolDatabase& database,
+	const Pcsx2Config::DebugAnalysisOptions& options,
+	const std::map<std::string, ccc::DataTypeHandle>& builtin_types,
+	u32 importer_flags,
+	const ccc::DemanglerFunctions& demangler,
+	const std::atomic_bool* interrupt)
+{
+	MipsExpressionFunctions expression_functions(&r5900Debug, &database, true);
 
 	for (const DebugExtraSymbolFile& extra_symbol_file : options.ExtraSymbolFiles)
 	{
 		if (*interrupt)
 			return;
 
-		if (StringUtil::EndsWithNoCase(extra_symbol_file.Path, ".sym"))
+		std::string path = Path::ToNativePath(extra_symbol_file.Path);
+		if (!Path::IsAbsolute(path))
+			path = Path::Combine(EmuFolders::GameSettings, path);
+
+		if (!extra_symbol_file.Condition.empty())
 		{
-			if (!ImportNocashSymbols(database, extra_symbol_file.Path))
-				Console.Error("Failed to read extra symbol file '%s'.", extra_symbol_file.Path.c_str());
+			u64 expression_result = 0;
+			std::string error;
+			if (!parseExpression(extra_symbol_file.Condition.c_str(), &expression_functions, expression_result, error))
+			{
+				Console.Error("Failed to evaluate condition expression '%s' while importing extra symbol file '%s': %s",
+					extra_symbol_file.Condition.c_str(), path.c_str(), error.c_str());
+			}
+
+			if (!expression_result)
+				continue;
+		}
+
+		ccc::Address base_address;
+		if (!extra_symbol_file.BaseAddress.empty())
+		{
+			u64 expression_result = 0;
+			std::string error;
+			if (!parseExpression(extra_symbol_file.BaseAddress.c_str(), &expression_functions, expression_result, error))
+			{
+				Console.Error("Failed to evaluate base address expression '%s' while importing extra symbol file '%s': %s",
+					extra_symbol_file.BaseAddress.c_str(), path.c_str(), error.c_str());
+			}
+
+			base_address = static_cast<u32>(expression_result);
+		}
+
+		if (StringUtil::EndsWithNoCase(path, ".sym"))
+		{
+			ccc::Result<bool> nocash_result = ImportNocashSymbols(
+				database, path, base_address.get_or_zero(), builtin_types);
+			if (!nocash_result.success())
+			{
+				Console.Error("Failed to import symbol file '%s': %s",
+					extra_symbol_file.Path.c_str(), nocash_result.error().message.c_str());
+			}
+
+			if (!*nocash_result)
+				Console.Error("Cannot open symbol file '%s'.", path.c_str());
+
 			continue;
 		}
 
-		Error error;
-		std::optional<std::vector<u8>> image = FileSystem::ReadBinaryFile(extra_symbol_file.Path.c_str());
+		std::optional<std::vector<u8>> image = FileSystem::ReadBinaryFile(path.c_str());
 		if (!image.has_value())
 		{
-			Console.Error("Failed to read extra symbol file '%s'.", extra_symbol_file.Path.c_str());
+			Console.Error("Failed to read extra symbol file '%s'.", path.c_str());
 			continue;
 		}
 
-		std::string file_name(Path::GetFileName(extra_symbol_file.Path));
+		std::string file_name(Path::GetFileName(path));
 
-		ccc::Result<std::unique_ptr<ccc::SymbolFile>> symbol_file = ccc::parse_symbol_file(std::move(*image), file_name.c_str());
+		ccc::Result<std::unique_ptr<ccc::SymbolFile>> symbol_file = ccc::parse_symbol_file(
+			std::move(*image), file_name.c_str());
 		if (!symbol_file.success())
 		{
 			ccc::report_error(symbol_file.error());
 			continue;
 		}
 
-		ccc::Result<std::vector<std::unique_ptr<ccc::SymbolTable>>> symbol_tables = elf.get_all_symbol_tables();
+		ccc::Result<std::vector<std::unique_ptr<ccc::SymbolTable>>> symbol_tables =
+			(*symbol_file)->get_all_symbol_tables();
 		if (!symbol_tables.success())
 		{
 			ccc::report_error(symbol_tables.error());
@@ -348,33 +418,32 @@ void SymbolImporter::ImportSymbols(
 		}
 
 		ccc::Result<ccc::ModuleHandle> module_handle = ccc::import_symbol_tables(
-			database, elf.name(), *symbol_tables, importer_flags, demangler, interrupt);
+			database, *symbol_tables, (*symbol_file)->name(), base_address, importer_flags, demangler, interrupt);
 		if (!module_handle.success())
 		{
 			ccc::report_error(module_handle.error());
 			continue;
 		}
 	}
-
-	Console.WriteLn("Imported %d symbols.", database.symbol_count());
-
-	return;
 }
 
-bool SymbolImporter::ImportNocashSymbols(ccc::SymbolDatabase& database, const std::string& file_path)
+ccc::Result<bool> SymbolImporter::ImportNocashSymbols(
+	ccc::SymbolDatabase& database,
+	const std::string& file_path,
+	u32 base_address,
+	const std::map<std::string, ccc::DataTypeHandle>& builtin_types)
 {
-	FILE* f = FileSystem::OpenCFile(file_path.c_str(), "r");
-	if (!f)
+	auto file = FileSystem::OpenManagedCFile(file_path.c_str(), "r");
+	if (!file)
 		return false;
 
 	ccc::Result<ccc::SymbolSourceHandle> source = database.get_symbol_source("Nocash Symbols");
-	if (!source.success())
-		return false;
+	CCC_RETURN_IF_ERROR(source);
 
-	while (!feof(f))
+	while (!feof(file.get()))
 	{
 		char line[256], value[256] = {0};
-		char* p = fgets(line, 256, f);
+		char* p = fgets(line, 256, file.get());
 		if (p == NULL)
 			break;
 
@@ -386,6 +455,8 @@ bool SymbolImporter::ImportNocashSymbols(ccc::SymbolDatabase& database, const st
 			continue;
 		if (address == 0 && strcmp(value, "0") == 0)
 			continue;
+
+		address += base_address;
 
 		if (value[0] == '.')
 		{
@@ -399,49 +470,31 @@ bool SymbolImporter::ImportNocashSymbols(ccc::SymbolDatabase& database, const st
 				if (sscanf(s + 1, "%04x", &size) != 1)
 					continue;
 
-				std::unique_ptr<ccc::ast::BuiltIn> scalar_type = std::make_unique<ccc::ast::BuiltIn>();
+				std::unique_ptr<ccc::ast::Node> type;
 				if (StringUtil::Strcasecmp(value, ".byt") == 0)
-				{
-					scalar_type->size_bytes = 1;
-					scalar_type->bclass = ccc::ast::BuiltInClass::UNSIGNED_8;
-				}
+					type = GetBuiltInType("u8", ccc::ast::BuiltInClass::UNSIGNED_8, builtin_types);
 				else if (StringUtil::Strcasecmp(value, ".wrd") == 0)
-				{
-					scalar_type->size_bytes = 2;
-					scalar_type->bclass = ccc::ast::BuiltInClass::UNSIGNED_16;
-				}
+					type = GetBuiltInType("u16", ccc::ast::BuiltInClass::UNSIGNED_16, builtin_types);
 				else if (StringUtil::Strcasecmp(value, ".dbl") == 0)
-				{
-					scalar_type->size_bytes = 4;
-					scalar_type->bclass = ccc::ast::BuiltInClass::UNSIGNED_32;
-				}
+					type = GetBuiltInType("u32", ccc::ast::BuiltInClass::UNSIGNED_32, builtin_types);
 				else if (StringUtil::Strcasecmp(value, ".asc") == 0)
-				{
-					scalar_type->size_bytes = 1;
-					scalar_type->bclass = ccc::ast::BuiltInClass::UNQUALIFIED_8;
-				}
+					type = GetBuiltInType("char", ccc::ast::BuiltInClass::UNQUALIFIED_8, builtin_types);
 				else
-				{
 					continue;
-				}
 
 				ccc::Result<ccc::GlobalVariable*> global_variable = database.global_variables.create_symbol(
 					line, address, *source, nullptr);
-				if (!global_variable.success())
-				{
-					fclose(f);
-					return false;
-				}
+				CCC_RETURN_IF_ERROR(global_variable);
 
-				if (scalar_type->size_bytes == (s32)size)
+				if (type->size_bytes == (s32)size)
 				{
-					(*global_variable)->set_type(std::move(scalar_type));
+					(*global_variable)->set_type(std::move(type));
 				}
 				else
 				{
 					std::unique_ptr<ccc::ast::Array> array = std::make_unique<ccc::ast::Array>();
 					array->size_bytes = (s32)size;
-					array->element_type = std::move(scalar_type);
+					array->element_type = std::move(type);
 					array->element_count = size / array->element_type->size_bytes;
 					(*global_variable)->set_type(std::move(array));
 				}
@@ -460,39 +513,70 @@ bool SymbolImporter::ImportNocashSymbols(ccc::SymbolDatabase& database, const st
 			if (size != 1)
 			{
 				ccc::Result<ccc::Function*> function = database.functions.create_symbol(value, address, *source, nullptr);
-				if (!function.success())
-				{
-					fclose(f);
-					return false;
-				}
+				CCC_RETURN_IF_ERROR(function);
 
 				(*function)->set_size(size);
 			}
 			else
 			{
 				ccc::Result<ccc::Label*> label = database.labels.create_symbol(value, address, *source, nullptr);
-				if (!label.success())
-				{
-					fclose(f);
-					return false;
-				}
+				CCC_RETURN_IF_ERROR(label);
 			}
 		}
 	}
 
-	fclose(f);
 	return true;
+}
+
+std::unique_ptr<ccc::ast::Node> SymbolImporter::GetBuiltInType(
+	const std::string& name,
+	ccc::ast::BuiltInClass bclass,
+	const std::map<std::string, ccc::DataTypeHandle>& builtin_types)
+{
+	auto type = builtin_types.find(name);
+	if (type != builtin_types.end())
+	{
+		std::unique_ptr<ccc::ast::TypeName> type_name = std::make_unique<ccc::ast::TypeName>();
+		type_name->size_bytes = ccc::ast::builtin_class_size(bclass);
+		type_name->data_type_handle = type->second;
+		return type_name;
+	}
+
+	std::unique_ptr<ccc::ast::BuiltIn> built_in = std::make_unique<ccc::ast::BuiltIn>();
+	built_in->size_bytes = ccc::ast::builtin_class_size(bclass);
+	built_in->bclass = bclass;
+	return built_in;
 }
 
 void SymbolImporter::ScanForFunctions(
 	ccc::SymbolDatabase& database, const ccc::ElfSymbolFile& elf, const Pcsx2Config::DebugAnalysisOptions& options)
 {
+	MipsExpressionFunctions expression_functions(&r5900Debug, &database, true);
+
 	u32 start_address = 0;
 	u32 end_address = 0;
 	if (options.CustomFunctionScanRange)
 	{
-		start_address = static_cast<u32>(std::stoull(options.FunctionScanStartAddress.c_str(), nullptr, 16));
-		end_address = static_cast<u32>(std::stoull(options.FunctionScanEndAddress.c_str(), nullptr, 16));
+		u64 expression_result = 0;
+		std::string error;
+
+		if (!parseExpression(options.FunctionScanStartAddress.c_str(), &expression_functions, expression_result, error))
+		{
+			Console.Error("Failed to evaluate start address expression '%s' while scanning for functions: %s",
+				options.FunctionScanStartAddress.c_str(), error.c_str());
+			return;
+		}
+
+		start_address = static_cast<u32>(expression_result);
+
+		if (!parseExpression(options.FunctionScanEndAddress.c_str(), &expression_functions, expression_result, error))
+		{
+			Console.Error("Failed to evaluate end address expression '%s' while scanning for functions: %s",
+				options.FunctionScanEndAddress.c_str(), error.c_str());
+			return;
+		}
+
+		end_address = static_cast<u32>(expression_result);
 	}
 	else
 	{
