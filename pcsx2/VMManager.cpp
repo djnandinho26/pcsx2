@@ -415,6 +415,10 @@ bool VMManager::Internal::CPUThreadInitialize()
 	if (EmuConfig.EnableDiscordPresence)
 		InitializeDiscordPresence();
 
+	// Check for advanced settings status and warn the user if its enabled
+	if (Host::GetBaseBoolSettingValue("UI", "ShowAdvancedSettings", false))
+		Console.Warning("Settings: Advanced Settings are enabled; only proceed if you know what you're doing! No support will be provided if you have the option enabled.");
+
 	return true;
 }
 
@@ -756,7 +760,7 @@ bool VMManager::ReloadGameSettings()
 		return false;
 
 	// Patches must come first, because they can affect aspect ratio/interlacing.
-	Patch::UpdateActivePatches(true, false, true);
+	Patch::UpdateActivePatches(true, false, true, HasValidVM());
 	ApplySettings();
 	return true;
 }
@@ -1818,6 +1822,7 @@ bool VMManager::DoLoadState(const char* filename)
 		MTGS::PresentCurrentFrame();
 	}
 
+	MemcardBusy::CheckSaveStateDependency();
 	return true;
 }
 
@@ -1866,6 +1871,7 @@ bool VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip
 	}
 
 	Host::OnSaveStateSaved(filename);
+	MemcardBusy::CheckSaveStateDependency();
 	return true;
 }
 
@@ -2765,6 +2771,7 @@ void VMManager::Internal::EntryPointCompilingOnCPUThread()
 	HandleELFChange(true);
 
 	Patch::ApplyLoadedPatches(Patch::PPT_ONCE_ON_LOAD);
+	Patch::ApplyLoadedPatches(Patch::PPT_COMBINED_0_1);
 	// If the config changes at this point, it's a reset, so the game doesn't currently know about the memcard
 	// so there's no need to leave the eject running.
 	FileMcd_CancelEject();
@@ -2892,7 +2899,7 @@ void VMManager::CheckForPatchConfigChanges(const Pcsx2Config& old_config)
 		return;
 	}
 
-	Patch::UpdateActivePatches(true, false, true);
+	Patch::UpdateActivePatches(true, false, true, HasValidVM());
 
 	// This is a bit messy, because the patch config update happens after the settings are loaded,
 	// if we disable widescreen patches, we have to reload the original settings again.

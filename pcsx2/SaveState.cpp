@@ -15,12 +15,13 @@
 #include "Host.h"
 #include "MTGS.h"
 #include "MTVU.h"
-#include "SIO/Pad/Pad.h"
 #include "Patch.h"
 #include "R3000A.h"
+#include "SIO/Multitap/MultitapProtocol.h"
+#include "SIO/Pad/Pad.h"
+#include "SIO/Sio.h"
 #include "SIO/Sio0.h"
 #include "SIO/Sio2.h"
-#include "SIO/Multitap/MultitapProtocol.h"
 #include "SPU2/spu2.h"
 #include "SaveState.h"
 #include "StateWrapper.h"
@@ -182,6 +183,7 @@ bool SaveStateBase::FreezeInternals(Error* error)
 	Freeze(psxRegs);		// iop regs
 	Freeze(fpuRegs);
 	Freeze(tlb);			// tlbs
+	Freeze(cachedTlbs);		// cached tlbs
 	Freeze(AllowParams1);	//OSDConfig written (Fast Boot)
 	Freeze(AllowParams2);
 
@@ -315,7 +317,7 @@ memLoadingState::memLoadingState(const VmStateBuffer& load_from)
 // Loading of state data from a memory buffer...
 void memLoadingState::FreezeMem( void* data, int size )
 {
-	if (m_idx + size > m_memory.size())
+	if (static_cast<u32>(m_idx + size) > m_memory.size())
 		m_error = true;
 
 	if (m_error)
