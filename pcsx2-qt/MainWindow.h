@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -104,7 +104,7 @@ public:
 	void rescanFile(const std::string& path);
 
 	void openDebugger();
-
+	void checkMousePosition(int x, int y);
 public Q_SLOTS:
 	void checkForUpdates(bool display_message, bool force_check);
 	void refreshGameList(bool invalidate_cache);
@@ -128,7 +128,7 @@ private Q_SLOTS:
 	void mouseModeRequested(bool relative_mode, bool hide_cursor);
 	void releaseRenderWindow();
 	void focusDisplayWidget();
-
+	void setupMouseMoveHandler();
 	void onGameListRefreshComplete();
 	void onGameListRefreshProgress(const QString& status, int current, int total);
 	void onGameListSelectionChanged();
@@ -157,6 +157,8 @@ private Q_SLOTS:
 	void onViewGamePropertiesActionTriggered();
 	void onGitHubRepositoryActionTriggered();
 	void onSupportForumsActionTriggered();
+	void onWikiActionTriggered();
+	void onDocumentationActionTriggered();
 	void onDiscordServerActionTriggered();
 	void onAboutActionTriggered();
 	void onToolsOpenDataDirectoryTriggered();
@@ -180,7 +182,6 @@ private Q_SLOTS:
 	void onInputRecPlayActionTriggered();
 	void onInputRecStopActionTriggered();
 	void onInputRecOpenViewer();
-
 	void onVMStarting();
 	void onVMStarted();
 	void onVMPaused();
@@ -238,6 +239,7 @@ private:
 	bool isRenderingToMain() const;
 	bool shouldHideMouseCursor() const;
 	bool shouldHideMainWindow() const;
+	bool shouldMouseLock() const;
 	void switchToGameListView();
 	void switchToEmulationView();
 

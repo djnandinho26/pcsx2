@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "DebugInterface.h"
@@ -967,6 +967,7 @@ std::string R3000DebugInterface::disasm(u32 address, bool simplify)
 
 bool R3000DebugInterface::isValidAddress(u32 addr)
 {
+	addr &= 0x1fffffff;
 	if (addr >= 0x1D000000 && addr < 0x1E000000)
 	{
 		return true;

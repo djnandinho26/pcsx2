@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "ExpressionParser.h"
@@ -599,7 +599,11 @@ bool parsePostfixExpression(PostfixExpression& exp, IExpressionFunctions* funcs,
 		}
 	}
 
-	if (valueStack.size() != 1) return false;
+	if (valueStack.size() != 1)
+	{
+		error = TRANSLATE("ExpressionParser", "Invalid expression (Too many constants?)");
+		return false;
+	}
 	dest = valueStack[0];
 	return true;
 }

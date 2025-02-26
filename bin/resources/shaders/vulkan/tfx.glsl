@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 //////////////////////////////////////////////////////////////////////
@@ -954,7 +954,7 @@ vec4 ps_color()
 			T.a = float(denorm_c_before.a & 0x80u);
 		#else
 			T.r = float((denorm_c_before.r << 3) & 0xF8u);
-			T.g = float(((denorm_c_before.r >> 2) & 0x38) | ((denorm_c_before.g << 6) & 0xC0u));
+			T.g = float(((denorm_c_before.r >> 2) & 0x38u) | ((denorm_c_before.g << 6) & 0xC0u));
 			T.b = float((denorm_c_before.g << 1) & 0xF8u);
 			T.a = float(denorm_c_before.g & 0x80u);
 		#endif
@@ -972,7 +972,12 @@ vec4 ps_color()
 void ps_fbmask(inout vec4 C)
 {
 	#if PS_FBMASK
-		vec4 RT = trunc(sample_from_rt() * 255.0f + 0.1f);
+		
+		#if PS_HDR == 1
+			vec4 RT = trunc(sample_from_rt() * 65535.0f);
+		#else
+			vec4 RT = trunc(sample_from_rt() * 255.0f + 0.1f);
+		#endif
 		C = vec4((uvec4(C) & ~FbMask) | (uvec4(RT) & FbMask));
 	#endif
 }
@@ -1090,7 +1095,11 @@ void ps_blend(inout vec4 Color, inout vec4 As_rgba)
 		#endif
 
 			// Let the compiler do its jobs !
+			#if PS_HDR == 1
+			vec3 Cd = trunc(RT.rgb * 65535.0f);
+			#else
 			vec3 Cd = trunc(RT.rgb * 255.0f + 0.1f);
+			#endif
 			vec3 Cs = Color.rgb;
 
 		#if PS_BLEND_A == 0

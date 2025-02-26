@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "AboutDialog.h"
@@ -104,6 +104,15 @@ MainWindow::MainWindow()
 	pxAssert(!g_main_window);
 	g_main_window = this;
 
+	//  Native window rendering is broken in wayland.
+	//  Let's work around it by disabling it for every widget besides
+	//  DisplayWidget.
+	//  Additionally, alien widget rendering is much more performant, so we
+	//  should have a nice responsiveness boost in our UI :)
+	//  QTBUG-133919, reported upstream by govanify 
+	QGuiApplication::setAttribute(Qt::AA_NativeWindows, false);
+	QGuiApplication::setAttribute(Qt::AA_DontCreateNativeWidgetSiblings, true);
+
 #if !defined(_WIN32) && !defined(__APPLE__)
 	s_use_central_widget = DisplayContainer::isRunningOnWayland();
 #endif
@@ -114,6 +123,8 @@ MainWindow::~MainWindow()
 	// make sure the game list isn't refreshing, because it's on a separate thread
 	cancelGameListRefresh();
 	destroySubWindows();
+
+	Common::DetachMousePositionCb();
 
 	// we compare here, since recreate destroys the window later
 	if (g_main_window == this)
@@ -150,6 +161,9 @@ void MainWindow::initialize()
 #ifdef _WIN32
 	registerForDeviceNotifications();
 #endif
+
+	if (Host::GetBoolSettingValue("EmuCore", "EnableMouseLock", false))
+		setupMouseMoveHandler();
 }
 
 // TODO: Figure out how to set this in the .ui file
@@ -345,6 +359,8 @@ void MainWindow::connectSignals()
 	connect(m_ui.actionViewGameProperties, &QAction::triggered, this, &MainWindow::onViewGamePropertiesActionTriggered);
 	connect(m_ui.actionGitHubRepository, &QAction::triggered, this, &MainWindow::onGitHubRepositoryActionTriggered);
 	connect(m_ui.actionSupportForums, &QAction::triggered, this, &MainWindow::onSupportForumsActionTriggered);
+	connect(m_ui.actionWiki, &QAction::triggered, this, &MainWindow::onWikiActionTriggered);
+	connect(m_ui.actionDocumentation, &QAction::triggered, this, &MainWindow::onDocumentationActionTriggered);
 	connect(m_ui.actionDiscordServer, &QAction::triggered, this, &MainWindow::onDiscordServerActionTriggered);
 	connect(m_ui.actionAboutQt, &QAction::triggered, qApp, &QApplication::aboutQt);
 	connect(m_ui.actionAbout, &QAction::triggered, this, &MainWindow::onAboutActionTriggered);
@@ -1069,6 +1085,21 @@ bool MainWindow::shouldHideMainWindow() const
 		   QtHost::InNoGUIMode();
 }
 
+bool MainWindow::shouldMouseLock() const
+{
+	if (!s_vm_valid || s_vm_paused)
+		return false;
+
+	if (!Host::GetBoolSettingValue("EmuCore", "EnableMouseLock", false))
+		return false;
+
+	bool windowsHidden = (!m_debugger_window || m_debugger_window->isHidden()) &&
+						 (!m_controller_settings_window || m_controller_settings_window->isHidden()) &&
+						 (!m_settings_window || m_settings_window->isHidden());
+
+	return windowsHidden && (isActiveWindow() || isRenderingFullscreen());
+}
+
 bool MainWindow::shouldAbortForMemcardBusy(const VMLock& lock)
 {
 	if (MemcardBusy::IsBusy() && !GSDumpReplayer::IsReplayingDump())
@@ -1346,9 +1377,8 @@ void MainWindow::onGameListEntryContextMenuRequested(const QPoint& point)
 		if (action->isEnabled())
 		{
 			connect(action, &QAction::triggered, [entry]() {
-				SettingsWindow::openGamePropertiesDialog(entry, entry->title,
-					(entry->type != GameList::EntryType::ELF) ? entry->serial : std::string(),
-					entry->crc);
+				SettingsWindow::openGamePropertiesDialog(entry,
+					entry->title, entry->serial, entry->crc, entry->type == GameList::EntryType::ELF);
 			});
 		}
 
@@ -1564,7 +1594,7 @@ void MainWindow::onViewGamePropertiesActionTriggered()
 		if (entry)
 		{
 			SettingsWindow::openGamePropertiesDialog(
-				entry, entry->title, s_current_elf_override.isEmpty() ? entry->serial : std::string(), entry->crc);
+				entry, entry->title, entry->serial, entry->crc, !s_current_elf_override.isEmpty());
 			return;
 		}
 	}
@@ -1580,12 +1610,12 @@ void MainWindow::onViewGamePropertiesActionTriggered()
 	if (s_current_elf_override.isEmpty())
 	{
 		SettingsWindow::openGamePropertiesDialog(
-			nullptr, s_current_title.toStdString(), s_current_disc_serial.toStdString(), s_current_disc_crc);
+			nullptr, s_current_title.toStdString(), s_current_disc_serial.toStdString(), s_current_disc_crc, false);
 	}
 	else
 	{
 		SettingsWindow::openGamePropertiesDialog(
-			nullptr, s_current_title.toStdString(), std::string(), s_current_disc_crc);
+			nullptr, s_current_title.toStdString(), std::string(), s_current_disc_crc, true);
 	}
 }
 
@@ -1597,6 +1627,16 @@ void MainWindow::onGitHubRepositoryActionTriggered()
 void MainWindow::onSupportForumsActionTriggered()
 {
 	QtUtils::OpenURL(this, AboutDialog::getSupportForumsUrl());
+}
+
+void MainWindow::onWikiActionTriggered()
+{
+	QtUtils::OpenURL(this, AboutDialog::getWikiUrl());
+}
+
+void MainWindow::onDocumentationActionTriggered()
+{
+	QtUtils::OpenURL(this, AboutDialog::getDocumentationUrl());
 }
 
 void MainWindow::onDiscordServerActionTriggered()
@@ -2223,6 +2263,15 @@ void MainWindow::registerForDeviceNotifications()
 	DEV_BROADCAST_DEVICEINTERFACE_W filter = {sizeof(DEV_BROADCAST_DEVICEINTERFACE_W), DBT_DEVTYP_DEVICEINTERFACE};
 	m_device_notification_handle =
 		RegisterDeviceNotificationW((HANDLE)winId(), &filter, DEVICE_NOTIFY_WINDOW_HANDLE | DEVICE_NOTIFY_ALL_INTERFACE_CLASSES);
+
+	// Set up the raw input device for mouse grabbing
+	RAWINPUTDEVICE rid;
+	rid.usUsagePage = 0x01; // Generic desktop controls
+	rid.usUsage = 0x02; // Mouse
+	rid.dwFlags = RIDEV_INPUTSINK;
+	rid.hwndTarget = (HWND)winId();
+
+	RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE));
 #endif
 }
 
@@ -2250,6 +2299,26 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
 			g_emu_thread->reloadInputDevices();
 			*result = 1;
 			return true;
+		}
+
+		if (msg->message == WM_INPUT)
+		{
+			UINT dwSize = 40;
+			static BYTE lpb[40];
+			if (GetRawInputData((HRAWINPUT)msg->lParam, RID_INPUT, lpb, &dwSize, sizeof(RAWINPUTHEADER)))
+			{
+				const RAWINPUT* raw = (RAWINPUT*)lpb;
+				if (raw->header.dwType == RIM_TYPEMOUSE)
+				{
+					const RAWMOUSE& mouse = raw->data.mouse;
+					if (mouse.usFlags == MOUSE_MOVE_ABSOLUTE || mouse.usFlags == MOUSE_MOVE_RELATIVE)
+					{
+						POINT cursorPos;
+						GetCursorPos(&cursorPos);
+						checkMousePosition(cursorPos.x, cursorPos.y);
+					}
+				}
+			}
 		}
 	}
 
@@ -2528,6 +2597,53 @@ void MainWindow::focusDisplayWidget()
 QWidget* MainWindow::getDisplayContainer() const
 {
 	return (m_display_container ? static_cast<QWidget*>(m_display_container) : static_cast<QWidget*>(m_display_widget));
+}
+
+void MainWindow::setupMouseMoveHandler()
+{
+	auto mouse_cb_fn = [](int x, int y)
+	{
+		if(g_main_window)
+			g_main_window->checkMousePosition(x, y);
+	};
+	
+	if(!Common::AttachMousePositionCb(mouse_cb_fn))
+	{
+		Console.Warning("Unable to setup mouse position cb!");
+	}
+
+	return;
+}
+
+void MainWindow::checkMousePosition(int x, int y)
+{
+	if (!shouldMouseLock())
+		return;
+
+	const QPoint globalCursorPos = {x, y};
+	QRect windowBounds = isRenderingFullscreen() ? screen()->geometry() : geometry();
+	if (windowBounds.contains(globalCursorPos))
+		return;
+
+	Common::SetMousePosition(
+		std::clamp(globalCursorPos.x(), windowBounds.left(), windowBounds.right()),
+		std::clamp(globalCursorPos.y(), windowBounds.top(), windowBounds.bottom()));
+
+	/*
+		Provided below is how we would handle this if we were using low level hooks (What is used in Common::AttachMouseCb)
+		We currently use rawmouse on Windows, so Common::SetMousePosition called directly works fine.
+	*/
+#if 0
+		// We are currently in a low level hook. SetCursorPos here (what is in Common::SetMousePosition) will not work!
+		// Let's (a)buse Qt's event loop to dispatch the call at a later time, outside of the hook.
+		QMetaObject::invokeMethod(
+			this, [=]() {
+				Common::SetMousePosition(
+					std::clamp(globalCursorPos.x(), windowBounds.left(), windowBounds.right()),
+					std::clamp(globalCursorPos.y(), windowBounds.top(), windowBounds.bottom()));
+			},
+			Qt::QueuedConnection);
+#endif
 }
 
 void MainWindow::saveDisplayWindowGeometryToConfig()

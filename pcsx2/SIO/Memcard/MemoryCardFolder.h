@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -9,8 +9,6 @@
 #include <vector>
 
 #include "Config.h"
-
-#include "fmt/core.h"
 
 //#define DEBUG_WRITE_FOLDER_CARD_IN_MEMORY_TO_FILE_ON_CHANGE
 
@@ -320,6 +318,8 @@ public:
 	void Open(std::string fullPath, const Pcsx2Config::McdOptions& mcdOptions, const u32 sizeInClusters, const bool enableFiltering, std::string filter, bool simulateFileWrites = false);
 	// Close the memory card and flush changes to the file system. Set flush to false to not store changes.
 	void Close(bool flush = true);
+	// Checks whether the Memory Card is formatted.
+	bool IsFormatted() const;
 
 	// Closes and reopens card with given filter options if they differ from the current ones (returns true),
 	// or does nothing if they match already (returns false).
@@ -364,8 +364,6 @@ protected:
 
 	// initializes memory card data, as if it was fresh from the factory
 	void InitializeInternalData();
-
-	bool IsFormatted() const;
 
 	// returns the in-memory address of data the given memory card adr corresponds to
 	// returns nullptr if adr corresponds to a folder or file entry

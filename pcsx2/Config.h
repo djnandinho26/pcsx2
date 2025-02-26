@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -745,6 +745,8 @@ struct Pcsx2Config
 					SaveFrame : 1,
 					SaveTexture : 1,
 					SaveDepth : 1,
+					SaveAlpha : 1,
+					SaveInfo : 1,
 					DumpReplaceableTextures : 1,
 					DumpReplaceableMipmaps : 1,
 					DumpTexturesWithFMVActive : 1,
@@ -820,8 +822,12 @@ struct Pcsx2Config
 		u16 SWExtraThreads = 2;
 		u16 SWExtraThreadsHeight = 4;
 
-		int SaveN = 0;
-		int SaveL = 5000;
+		int SaveDrawStart = 0;
+		int SaveDrawCount = 5000;
+		int SaveDrawBy = 1;
+		int SaveFrameStart = 0;
+		int SaveFrameCount = -1;
+		int SaveFrameBy = 1;
 
 		s8 ExclusiveFullscreenControl = -1;
 		GSScreenshotSize ScreenshotSize = GSScreenshotSize::WindowResolution;
@@ -865,6 +871,9 @@ struct Pcsx2Config
 
 		bool operator==(const GSOptions& right) const;
 		bool operator!=(const GSOptions& right) const;
+
+		// Should we dump this draw/frame?
+		bool ShouldDump(int draw, int frame) const;
 	};
 
 	struct SPU2Options
@@ -1282,6 +1291,7 @@ struct Pcsx2Config
 		InhibitScreensaver : 1,
 		BackupSavestate : 1,
 		McdFolderAutoManage : 1,
+		ManuallySetRealTimeClock : 1,
 
 		HostFs : 1,
 
@@ -1315,11 +1325,19 @@ struct Pcsx2Config
 
 	int PINESlot;
 
+	int RtcYear;
+	int RtcMonth;
+	int RtcDay;
+	int RtcHour;
+	int RtcMinute;
+	int RtcSecond;
+
 	// Set at runtime, not loaded from config.
 	std::string CurrentBlockdump;
 	std::string CurrentIRX;
 	std::string CurrentGameArgs;
 	AspectRatioType CurrentAspectRatio = AspectRatioType::RAuto4_3_3_2;
+	bool IsPortableMode = false;
 
 	Pcsx2Config();
 	void LoadSave(SettingsWrapper& wrap);

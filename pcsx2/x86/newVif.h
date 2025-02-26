@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -17,9 +17,3 @@ extern void  mVUsaveReg(const xRegisterSSE& reg, xAddressVoid ptr, int xyzw, boo
 #define _v1 0x55
 #define _v2 0xaa
 #define _v3 0xff
-#define xmmCol0 xmm2
-#define xmmCol1 xmm3
-#define xmmCol2 xmm4
-#define xmmCol3 xmm5
-#define xmmRow  xmm6
-#define xmmTemp xmm7

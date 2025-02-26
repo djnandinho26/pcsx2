@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "CDVD/CDVDcommon.h"
@@ -23,7 +23,7 @@
 #include <memory>
 #include <time.h>
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 
 // TODO: FIXME! Should be platform specific.
 #ifdef _WIN32

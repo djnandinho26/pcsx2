@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "pcsx2/SupportURLs.h"
@@ -87,6 +87,16 @@ QString AboutDialog::getLicenseUrl()
 QString AboutDialog::getThirdPartyLicensesUrl()
 {
 	return GetDocFileUrl("ThirdPartyLicenses.html");
+}
+
+QString AboutDialog::getWikiUrl()
+{
+	return QString::fromUtf8(PCSX2_WIKI_URL);
+}
+
+QString AboutDialog::getDocumentationUrl()
+{
+	return QString::fromUtf8(PCSX2_DOCUMENTATION_URL);
 }
 
 QString AboutDialog::getDiscordServerUrl()

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <stdio.h>
@@ -25,6 +25,7 @@
 #define DECODE_C0BC         ((disasmOpcode >> 16) & 0x03)
 #define DECODE_C1BC         ((disasmOpcode >> 16) & 0x03)
 #define DECODE_C2BC         ((disasmOpcode >> 16) & 0x03)
+#define DECODE_ILOCK        (disasmOpcode & 1)
 
 //IOP
 

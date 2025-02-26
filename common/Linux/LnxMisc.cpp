@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Pcsx2Types.h"
@@ -11,17 +11,22 @@
 #include "common/Threading.h"
 #include "common/WindowInfo.h"
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 
-#include <ctype.h>
-#include <time.h>
-#include <unistd.h>
-#include <optional>
+#include <dbus/dbus.h>
 #include <spawn.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <dbus/dbus.h>
+#include <X11/Xlib.h>
+#include <X11/extensions/XInput2.h>
+
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <ctype.h>
+#include <optional>
+#include <thread>
 
 // Returns 0 on failure (not supported by the operating system).
 u64 GetPhysicalMemory()
@@ -101,6 +106,7 @@ static bool SetScreensaverInhibitDBus(const bool inhibit_requested, const char* 
 	DBusMessage* message = nullptr;
 	DBusMessage* response = nullptr;
 	DBusMessageIter message_itr;
+	char* desktop_session = nullptr;
 
 	ScopedGuard cleanup = [&]() {
 		if (dbus_error_is_set(&error_dbus))
@@ -122,7 +128,17 @@ static bool SetScreensaverInhibitDBus(const bool inhibit_requested, const char* 
 		s_cookie = 0;
 		s_comparison_connection = connection;
 	}
-	message = dbus_message_new_method_call("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", bus_method);
+
+	desktop_session = std::getenv("DESKTOP_SESSION");
+	if (desktop_session && std::strncmp(desktop_session, "mate", 4) == 0)
+	{
+		message = dbus_message_new_method_call("org.mate.ScreenSaver", "/org/mate/ScreenSaver", "org.mate.ScreenSaver", bus_method);
+	}
+	else
+	{
+		message = dbus_message_new_method_call("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", bus_method);
+	}
+
 	if (!message)
 		return false;
 	// Initialize an append iterator for the message, gets freed with the message.
@@ -162,6 +178,111 @@ static bool SetScreensaverInhibitDBus(const bool inhibit_requested, const char* 
 bool Common::InhibitScreensaver(bool inhibit)
 {
 	return SetScreensaverInhibitDBus(inhibit, "PCSX2", "PCSX2 VM is running.");
+}
+
+void Common::SetMousePosition(int x, int y)
+{
+	Display* display = XOpenDisplay(nullptr);
+	if (!display)
+		return;
+
+	Window root = DefaultRootWindow(display);
+	XWarpPointer(display, None, root, 0, 0, 0, 0, x, y);
+	XFlush(display);
+
+	XCloseDisplay(display);
+}
+
+static std::function<void(int, int)> fnMouseMoveCb;
+static std::atomic<bool> trackingMouse = false;
+static std::thread mouseThread;
+
+void mouseEventLoop()
+{
+	Threading::SetNameOfCurrentThread("X11 Mouse Thread");
+	Display* display = XOpenDisplay(nullptr);
+	if (!display)
+	{
+		return;
+	}
+
+	int opcode, eventcode, error;
+	if (!XQueryExtension(display, "XInputExtension", &opcode, &eventcode, &error))
+	{
+		XCloseDisplay(display);
+		return;
+	}
+
+	const Window root = DefaultRootWindow(display);
+	XIEventMask evmask;
+	unsigned char mask[(XI_LASTEVENT + 7) / 8] = {0};
+
+	evmask.deviceid = XIAllDevices;
+	evmask.mask_len = sizeof(mask);
+	evmask.mask = mask;
+	XISetMask(mask, XI_RawMotion);
+
+	XISelectEvents(display, root, &evmask, 1);
+	XSync(display, False);
+
+	XEvent event;
+	while (trackingMouse)
+	{
+		// XNextEvent is blocking, this is a zombie process risk if no events arrive
+		// while we are trying to shutdown.
+		// https://nrk.neocities.org/articles/x11-timeout-with-xsyncalarm might be
+		// a better solution than using XPending.
+		if (!XPending(display))
+		{
+			Threading::Sleep(1);
+			Threading::SpinWait();
+			continue;
+		}
+
+		XNextEvent(display, &event);
+		if (event.xcookie.type == GenericEvent &&
+			event.xcookie.extension == opcode &&
+			XGetEventData(display, &event.xcookie))
+		{
+			XIRawEvent* raw_event = reinterpret_cast<XIRawEvent*>(event.xcookie.data);
+			if (raw_event->evtype == XI_RawMotion)
+			{
+				Window w;
+				int root_x, root_y, win_x, win_y;
+				unsigned int mask;
+				XQueryPointer(display, root, &w, &w, &root_x, &root_y, &win_x, &win_y, &mask);
+
+				if (fnMouseMoveCb)
+					fnMouseMoveCb(root_x, root_y);
+			}
+			XFreeEventData(display, &event.xcookie);
+		}
+	}
+
+	XCloseDisplay(display);
+}
+
+bool Common::AttachMousePositionCb(std::function<void(int, int)> cb)
+{
+	fnMouseMoveCb = cb;
+
+	if (trackingMouse)
+		return true;
+
+	trackingMouse = true;
+	mouseThread = std::thread(mouseEventLoop);
+	mouseThread.detach();
+	return true;
+}
+
+void Common::DetachMousePositionCb()
+{
+	trackingMouse = false;
+	fnMouseMoveCb = nullptr;
+	if (mouseThread.joinable())
+	{
+		mouseThread.join();
+	}
 }
 
 bool Common::PlaySoundAsync(const char* path)

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Config.h"
@@ -119,10 +119,10 @@ static constexpr const char* s_sdl_hat_direction_names[] = {
 };
 
 static constexpr const char* s_sdl_default_led_colors[] = {
-	"0000ff", // SDL-0
-	"ff0000", // SDL-1
-	"00ff00", // SDL-2
-	"ffff00", // SDL-3
+	"000080", // SDL-0
+	"800000", // SDL-1
+	"008000", // SDL-2
+	"808000", // SDL-3
 };
 
 static void SetControllerRGBLED(SDL_GameController* gc, u32 color)
@@ -245,6 +245,14 @@ u32 SDLInputSource::ParseRGBForPlayerId(const std::string_view str, u32 player_i
 	const u32 color = StringUtil::FromChars<u32>(str, 16).value_or(default_color);
 
 	return color;
+}
+
+void SDLInputSource::ResetRGBForAllPlayers(SettingsInterface& si)
+{
+	for (u32 player_id = 0; player_id < MAX_LED_COLORS; player_id++)
+	{
+		si.DeleteValue("SDLExtra", fmt::format("Player{}LED", player_id).c_str());
+	}
 }
 
 void SDLInputSource::SetHints()

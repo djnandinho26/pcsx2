@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Achievements.h"
@@ -57,7 +57,7 @@
 #include "IconsPromptFont.h"
 #include "cpuinfo.h"
 #include "discord_rpc.h"
-#include "fmt/core.h"
+#include "fmt/format.h"
 
 #include <atomic>
 #include <mutex>
@@ -1851,7 +1851,7 @@ bool VMManager::DoSaveState(const char* filename, s32 slot_for_message, bool zip
 		Console.WriteLn(fmt::format("Creating save state backup {}...", backup_filename));
 		if (!FileSystem::RenamePath(filename, backup_filename.c_str()))
 		{
-			Host::AddIconOSDMessage(std::move(osd_key), ICON_FA_EXCLAMATION_TRIANGLE,
+			Host::AddIconOSDMessage(osd_key, ICON_FA_EXCLAMATION_TRIANGLE,
 				fmt::format(
 					TRANSLATE_FS("VMManager", "Failed to back up old save state {}."), Path::GetFileName(filename)),
 				Host::OSD_ERROR_DURATION);
@@ -2234,7 +2234,7 @@ bool VMManager::ChangeDisc(CDVD_SourceType source, std::string path)
 
 	CDVDsys_ChangeSource(source);
 	if (!path.empty())
-		CDVDsys_SetFile(source, std::move(path));
+		CDVDsys_SetFile(source, path);
 
 	Error error;
 	const bool result = DoCDVDopen(&error);
@@ -2561,6 +2561,11 @@ void VMManager::InitializeCPUProviders()
 
 	CpuMicroVU0.Reserve();
 	CpuMicroVU1.Reserve();
+#else
+	// Despite not having any VU recompilers on ARM64, therefore no MTVU,
+	// we still need the thread alive. Otherwise the read and write positions
+	// of the ring buffer wont match, and various systems in the emulator end up deadlocked.
+	vu1Thread.Open();
 #endif
 
 	VifUnpackSSE_Init();
@@ -2580,6 +2585,11 @@ void VMManager::ShutdownCPUProviders()
 
 	psxRec.Shutdown();
 	recCpu.Shutdown();
+#else
+	// See the comment in the InitializeCPUProviders for an explaination why we
+	// still need to manage the MTVU thread.
+	if(vu1Thread.IsOpen())
+		vu1Thread.WaitVU();
 #endif
 }
 
@@ -2779,6 +2789,8 @@ void VMManager::Internal::EntryPointCompilingOnCPUThread()
 	// Toss all the recs, we're going to be executing new code.
 	mmap_ResetBlockTracking();
 	ClearCPUExecutionCaches();
+
+	R5900SymbolImporter.OnElfLoadedInMemory();
 }
 
 void VMManager::Internal::VSyncOnCPUThread()

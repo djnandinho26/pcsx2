@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/GS.h"
@@ -662,11 +662,7 @@ void GSLocalMemory::SaveBMP(const std::string& fn, u32 bp, u32 bw, u32 psm, int 
 		}
 	}
 
-#ifdef PCSX2_DEVBUILD
-	GSPng::Save(GSPng::RGB_A_PNG, fn, static_cast<u8*>(bits), w, h, pitch, GSConfig.PNGCompressionLevel, false);
-#else
-	GSPng::Save(GSPng::RGB_PNG, fn, static_cast<u8*>(bits), w, h, pitch, GSConfig.PNGCompressionLevel, false);
-#endif
+	GSPng::Save((IsDevBuild || GSConfig.SaveAlpha) ? GSPng::RGB_A_PNG : GSPng::RGB_PNG, fn, static_cast<u8*>(bits), w, h, pitch, GSConfig.PNGCompressionLevel, false);
 
 	_aligned_free(bits);
 }

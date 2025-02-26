@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #define _PC_ // disables MIPS opcode macros.
@@ -368,12 +368,14 @@ bool Patch::OpenPatchesZip()
 std::string Patch::GetPnachTemplate(const std::string_view serial, u32 crc, bool include_serial, bool add_wildcard, bool all_crcs)
 {
 	pxAssert(!all_crcs || (include_serial && add_wildcard));
-	if (all_crcs)
-		return fmt::format("{}_*.pnach", serial);
-	else if (include_serial)
-		return fmt::format("{}_{:08X}{}.pnach", serial, crc, add_wildcard ? "*" : "");
-	else
-		return fmt::format("{:08X}{}.pnach", crc, add_wildcard ? "*" : "");
+	if (!serial.empty())
+	{
+		if (all_crcs)
+			return fmt::format("{}_*.pnach", serial);	
+		else if (include_serial)
+			return fmt::format("{}_{:08X}{}.pnach", serial, crc, add_wildcard ? "*" : "");
+	}
+	return fmt::format("{:08X}{}.pnach", crc, add_wildcard ? "*" : "");
 }
 
 std::vector<std::string> Patch::FindPatchFilesOnDisk(const std::string_view serial, u32 crc, bool cheats, bool all_crcs)

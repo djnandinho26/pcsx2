@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/Common/GSDevice.h"
@@ -23,7 +23,7 @@
 #include "common/Path.h"
 #include "common/Timer.h"
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "common/Image.h"
@@ -143,8 +143,6 @@ bool ImGuiManager::Initialize()
 	ImGuiIO& io = ImGui::GetIO();
 	io.IniFilename = nullptr;
 	io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_HasGamepad;
-	io.BackendUsingLegacyKeyArrays = 0;
-	io.BackendUsingLegacyNavInputArray = 0;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
 	io.KeyRepeatDelay = 0.5f;
 
@@ -344,7 +342,7 @@ void ImGuiManager::SetStyle()
 	colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
 	colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
 	colors[ImGuiCol_DragDropTarget] = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
-	colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+	colors[ImGuiCol_NavCursor] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
 	colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
 	colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
 	colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);

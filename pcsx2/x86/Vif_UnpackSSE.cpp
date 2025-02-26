@@ -1,9 +1,8 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Vif_UnpackSSE.h"
 #include "common/Perf.h"
-#include "fmt/core.h"
 
 #define xMOV8(regX, loc)   xMOVSSZX(regX, loc)
 #define xMOV16(regX, loc)  xMOVSSZX(regX, loc)
@@ -329,12 +328,12 @@ VifUnpackSSE_Simple::VifUnpackSSE_Simple(bool usn_, bool domask_, int curCycle_)
 
 void VifUnpackSSE_Simple::doMaskWrite(const xRegisterSSE& regX) const
 {
-	xMOVAPS(xmm7, ptr[dstIndirect]);
+	xMOVAPS(xmm3, ptr[dstIndirect]);
 	const int offX = std::min(curCycle, 3);
 	xPAND(regX, ptr32[nVifMask[0][offX]]);
-	xPAND(xmm7, ptr32[nVifMask[1][offX]]);
+	xPAND(xmm3, ptr32[nVifMask[1][offX]]);
 	xPOR (regX, ptr32[nVifMask[2][offX]]);
-	xPOR (regX, xmm7);
+	xPOR (regX, xmm3);
 	xMOVAPS(ptr[dstIndirect], regX);
 }
 

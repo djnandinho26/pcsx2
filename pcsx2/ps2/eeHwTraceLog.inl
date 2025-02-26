@@ -1,9 +1,9 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 
 #define eeAddrInRange(name, addr) \
 	(addr >= EEMemoryMap::name##_Start && addr < EEMemoryMap::name##_End)

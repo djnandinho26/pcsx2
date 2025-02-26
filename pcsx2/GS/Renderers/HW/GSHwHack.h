@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/HW/GSRendererHW.h"
@@ -11,6 +11,7 @@ public:
 	static bool GSC_Manhunt2(GSRendererHW& r, int& skip);
 	static bool GSC_SacredBlaze(GSRendererHW& r, int& skip);
 	static bool GSC_SFEX3(GSRendererHW& r, int& skip);
+	static bool GSC_DTGames(GSRendererHW& r, int& skip);
 	static bool GSC_Tekken5(GSRendererHW& r, int& skip);
 	static bool GSC_BurnoutGames(GSRendererHW& r, int& skip);
 	static bool GSC_BlackAndBurnoutSky(GSRendererHW& r, int& skip);

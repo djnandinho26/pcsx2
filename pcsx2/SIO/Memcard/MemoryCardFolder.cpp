@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Memcard/MemoryCardFile.h"
@@ -17,13 +17,14 @@
 #include "common/StringUtil.h"
 #include "common/Timer.h"
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 #include "ryml_std.hpp"
 #include "ryml.hpp"
 
 #include <sstream>
 #include <mutex>
 #include <optional>
+#include <chrono>
 
 // A helper function to parse the YAML file
 static std::optional<ryml::Tree> loadYamlFile(const char* filePath)

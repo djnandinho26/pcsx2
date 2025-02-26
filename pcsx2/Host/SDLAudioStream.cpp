@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2024 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Host/AudioStream.h"
@@ -36,6 +36,9 @@ static bool InitializeSDLAudio(Error* error)
 	static bool initialized = false;
 	if (initialized)
 		return true;
+
+	// Set the name that shows up in the audio mixers on some platforms
+	SDL_SetHint("SDL_AUDIO_DEVICE_APP_NAME", "PCSX2");
 
 	// May as well keep it alive until the process exits.
 	if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0)
