@@ -223,8 +223,8 @@ enum class DebugFunctionScanMode
 
 enum class AspectRatioType : u8
 {
-	Stretch,
-	RAuto4_3_3_2,
+	Stretch, // Stretches to the whole window/display size
+	RAuto4_3_3_2, // Automatically scales to the target aspect ratio if there's a widescreen patch
 	R4_3,
 	R16_9,
 	R10_7,
@@ -233,7 +233,7 @@ enum class AspectRatioType : u8
 
 enum class FMVAspectRatioSwitchType : u8
 {
-	Off,
+	Off, // Falls back on the selected generic aspect ratio type
 	RAuto4_3_3_2,
 	R4_3,
 	R16_9,
@@ -341,7 +341,14 @@ enum class OsdOverlayPos : u8
 {
 	None,
 	TopLeft,
+	TopCenter,
 	TopRight,
+	CenterLeft,
+	Center,
+	CenterRight,
+	BottomLeft,
+	BottomCenter,
+	BottomRight,
 };
 
 enum class TexturePreloadingLevel : u8
@@ -449,6 +456,20 @@ enum class GSNativeScaling : u8
 	Off,
 	Normal,
 	Aggressive,
+	MaxCount
+};
+
+enum class AchievementOverlayPosition : u8
+{
+	TopLeft,
+	TopCenter,
+	TopRight,
+	CenterLeft,
+	Center,
+	CenterRight,
+	BottomLeft,
+	BottomCenter,
+	BottomRight,
 	MaxCount
 };
 
@@ -683,6 +704,11 @@ struct Pcsx2Config
 		static constexpr int DEFAULT_AUDIO_CAPTURE_BITRATE = 192;
 		static const char* DEFAULT_CAPTURE_CONTAINER;
 
+		static constexpr int DEFAULT_SHADEBOOST_BRIGHTNESS = 50;
+		static constexpr int DEFAULT_SHADEBOOST_CONTRAST = 50;
+		static constexpr int DEFAULT_SHADEBOOST_GAMMA = 50;
+		static constexpr int DEFAULT_SHADEBOOST_SATURATION = 50;
+
 		union
 		{
 			u64 bitset;
@@ -760,7 +786,8 @@ struct Pcsx2Config
 					EnableVideoCaptureParameters : 1,
 					VideoCaptureAutoResolution : 1,
 					EnableAudioCapture : 1,
-					EnableAudioCaptureParameters : 1;
+					EnableAudioCaptureParameters : 1,
+					OrganizeScreenshotsByGame : 1;
 			};
 		};
 
@@ -815,9 +842,10 @@ struct Pcsx2Config
 		s8 OverrideTextureBarriers = -1;
 
 		u8 CAS_Sharpness = 50;
-		u8 ShadeBoost_Brightness = 50;
-		u8 ShadeBoost_Contrast = 50;
-		u8 ShadeBoost_Saturation = 50;
+		u8 ShadeBoost_Brightness = DEFAULT_SHADEBOOST_BRIGHTNESS;
+		u8 ShadeBoost_Contrast = DEFAULT_SHADEBOOST_CONTRAST;
+		u8 ShadeBoost_Saturation = DEFAULT_SHADEBOOST_SATURATION;
+		u8 ShadeBoost_Gamma = DEFAULT_SHADEBOOST_GAMMA;
 		u8 PNGCompressionLevel = 1;
 
 		u16 SWExtraThreads = 2;
@@ -1209,6 +1237,11 @@ struct Pcsx2Config
 		static constexpr u32 MAXIMUM_NOTIFICATION_DURATION = 30;
 		static constexpr u32 DEFAULT_NOTIFICATION_DURATION = 5;
 		static constexpr u32 DEFAULT_LEADERBOARD_DURATION = 10;
+		static constexpr const char* DEFAULT_INFO_SOUND_NAME = "sounds/achievements/message.wav";
+		static constexpr const char* DEFAULT_UNLOCK_SOUND_NAME = "sounds/achievements/unlock.wav";
+		static constexpr const char* DEFAULT_LBSUBMIT_SOUND_NAME = "sounds/achievements/lbsubmit.wav";
+
+		static const char* OverlayPositionNames[(size_t)AchievementOverlayPosition::MaxCount + 1];
 
 		BITFIELD32()
 		bool
@@ -1220,11 +1253,20 @@ struct Pcsx2Config
 			Notifications : 1,
 			LeaderboardNotifications : 1,
 			SoundEffects : 1,
+			InfoSound : 1,
+			UnlockSound : 1,
+			LBSubmitSound : 1,
 			Overlays : 1;
 		BITFIELD_END
 
 		u32 NotificationsDuration = DEFAULT_NOTIFICATION_DURATION;
 		u32 LeaderboardsDuration = DEFAULT_LEADERBOARD_DURATION;
+		AchievementOverlayPosition OverlayPosition = AchievementOverlayPosition::BottomRight;
+		OsdOverlayPos NotificationPosition = OsdOverlayPos::TopLeft;
+
+		std::string InfoSoundName;
+		std::string UnlockSoundName;
+		std::string LBSubmitSoundName;
 
 		AchievementsOptions();
 		void LoadSave(SettingsWrapper& wrap);
@@ -1314,6 +1356,8 @@ struct Pcsx2Config
 	std::string CurrentIRX;
 	std::string CurrentGameArgs;
 	AspectRatioType CurrentAspectRatio = AspectRatioType::RAuto4_3_3_2;
+	// Fall back aspect ratio for games that have patches (when AspectRatioType::RAuto4_3_3_2) is active.
+	float CurrentCustomAspectRatio = 0.f;
 	bool IsPortableMode = false;
 
 	Pcsx2Config();
@@ -1391,10 +1435,12 @@ namespace EmuFolders
 
 // ------------ CPU / Recompiler Options ---------------
 
-#ifdef _M_X86 // TODO(Stenzek): Remove me once EE/VU/IOP recs are added.
-#define THREAD_VU1 (EmuConfig.Cpu.Recompiler.EnableVU1 && EmuConfig.Speedhacks.vuThread)
+#ifdef _M_X86 // TODO: Remove me once EE/VU/IOP recs are added.
+#define REC_VU1 (EmuConfig.Cpu.Recompiler.EnableVU1)
+#define THREAD_VU1 (REC_VU1 && EmuConfig.Speedhacks.vuThread)
 #else
 #define THREAD_VU1 false
+#define REC_VU1 false
 #endif
 #define INSTANT_VU1 (EmuConfig.Speedhacks.vu1Instant)
 #define CHECK_EEREC (EmuConfig.Cpu.Recompiler.EnableEE)

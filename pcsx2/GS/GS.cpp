@@ -48,7 +48,7 @@
 #include "common/SmallString.h"
 #include "common/StringUtil.h"
 
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome6.h"
 
 #include "fmt/format.h"
 
@@ -190,7 +190,7 @@ static void GSClampUpscaleMultiplier(Pcsx2Config::GSOptions& config)
 		return;
 	}
 
-	Host::AddIconOSDMessage("GSUpscaleMultiplierInvalid", ICON_FA_EXCLAMATION_TRIANGLE,
+	Host::AddIconOSDMessage("GSUpscaleMultiplierInvalid", ICON_FA_TRIANGLE_EXCLAMATION,
 		fmt::format(TRANSLATE_FS("GS", "Configured upscale multiplier {}x is above your GPU's supported multiplier of {}x."),
 			config.UpscaleMultiplier, max_upscale_multiplier),
 		Host::OSD_WARNING_DURATION);
@@ -355,10 +355,10 @@ bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* b
 
 	if (!res)
 	{
-		Host::ReportErrorAsync(
-			"Error", fmt::format(TRANSLATE_FS("GS","Failed to create render device. This may be due to your GPU not supporting the "
-								 "chosen renderer ({}), or because your graphics drivers need to be updated."),
-						 Pcsx2Config::GSOptions::GetRendererName(GSConfig.Renderer)));
+		Host::ReportErrorAsync("Error",
+			fmt::format(TRANSLATE_FS("GS", "Failed to create render device. This may be due to your GPU not supporting the "
+			                               "chosen renderer ({}), or because your graphics drivers need to be updated."),
+			            Pcsx2Config::GSOptions::GetRendererName(GSConfig.Renderer)));
 		return false;
 	}
 
@@ -435,6 +435,15 @@ void GSgifTransfer3(u8* mem, u32 size)
 
 void GSvsync(u32 field, bool registers_written)
 {
+	// Update this here because we need to check if the pending draw affects the current frame, so our regs need to be updated.
+	g_gs_renderer->PCRTCDisplays.SetVideoMode(g_gs_renderer->GetVideoMode());
+	g_gs_renderer->PCRTCDisplays.EnableDisplays(g_gs_renderer->m_regs->PMODE, g_gs_renderer->m_regs->SMODE2, g_gs_renderer->isReallyInterlaced());
+	g_gs_renderer->PCRTCDisplays.CheckSameSource();
+	g_gs_renderer->PCRTCDisplays.SetRects(0, g_gs_renderer->m_regs->DISP[0].DISPLAY, g_gs_renderer->m_regs->DISP[0].DISPFB);
+	g_gs_renderer->PCRTCDisplays.SetRects(1, g_gs_renderer->m_regs->DISP[1].DISPLAY, g_gs_renderer->m_regs->DISP[1].DISPFB);
+	g_gs_renderer->PCRTCDisplays.CalculateDisplayOffset(g_gs_renderer->m_scanmask_used);
+	g_gs_renderer->PCRTCDisplays.CalculateFramebufferOffset(g_gs_renderer->m_scanmask_used);
+
 	// Do not move the flush into the VSync() method. It's here because EE transfers
 	// get cleared in HW VSync, and may be needed for a buffered draw (FFX FMVs).
 	g_gs_renderer->Flush(GSState::VSYNC);
@@ -491,7 +500,7 @@ void GSEndCapture()
 {
 	if (g_gs_renderer)
 		g_gs_renderer->EndCapture();
-}		
+}
 
 void GSPresentCurrentFrame()
 {
@@ -652,7 +661,7 @@ void GSgetStats(SmallStringBase& info)
 		const double fillrate = pm.Get(GSPerfMon::Fillrate);
 		double pps = fps * fillrate;
 		char prefix = '\0';
-		
+
 		if (pps >= 170000000)
 		{
 			pps /= 1073741824; // Gpps
@@ -680,7 +689,7 @@ void GSgetStats(SmallStringBase& info)
 			(int)pm.Get(GSPerfMon::Draw),
 			pm.Get(GSPerfMon::Swizzle) / 1024,
 			pm.Get(GSPerfMon::Unswizzle) / 1024,
-			pps,prefix);
+			pps, prefix);
 	}
 	else if (GSCurrentRenderer == GSRendererType::Null)
 	{
@@ -1203,6 +1212,31 @@ BEGIN_HOTKEY_LIST(g_gs_hotkeys){"Screenshot", TRANSLATE_NOOP("Hotkeys", "Graphic
 			EmuConfig.GS.InterlaceMode = new_mode;
 
 			MTGS::RunOnGSThread([new_mode]() { GSConfig.InterlaceMode = new_mode; });
+		}},
+	{"CycleTVShader", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle TV Shader"),
+		[](s32 pressed) {
+			if (pressed)
+				return;
+
+			static constexpr std::array<const char*, 8> option_names = {{
+				TRANSLATE_NOOP("Hotkeys", "None (Default)"),
+				TRANSLATE_NOOP("Hotkeys", "Scanline Filter"),
+				TRANSLATE_NOOP("Hotkeys", "Diagonal Filter"),
+				TRANSLATE_NOOP("Hotkeys", "Triangular Filter"),
+				TRANSLATE_NOOP("Hotkeys", "Wave Filter"),
+				TRANSLATE_NOOP("Hotkeys", "Lottes CRT"),
+				TRANSLATE_NOOP("Hotkeys", "4xRGSS"),
+				TRANSLATE_NOOP("Hotkeys", "NxAGSS"),
+			}};
+
+			const u32 new_shader = (EmuConfig.GS.TVShader + 1) % 8;
+			Host::AddKeyedOSDMessage("CycleTVShader",
+				fmt::format(
+					TRANSLATE_FS("Hotkeys", "TV shader set to '{}'."), option_names[new_shader]),
+				Host::OSD_QUICK_DURATION);
+			EmuConfig.GS.TVShader = new_shader;
+
+			MTGS::RunOnGSThread([new_shader]() { GSConfig.TVShader = new_shader; });
 		}},
 	{"ToggleTextureDumping", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle Texture Dumping"),
 		[](s32 pressed) {

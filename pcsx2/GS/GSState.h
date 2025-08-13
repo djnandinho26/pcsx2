@@ -21,7 +21,7 @@ public:
 	GSState();
 	virtual ~GSState();
 
-	static constexpr int GetSaveStateSize();
+	static constexpr int GetSaveStateSize(int version);
 
 private:
 	// RESTRICT prevents multiple loads of the same part of the register when accessing its bitfields (the compiler is happy to know that memory writes in-between will not go there)
@@ -38,8 +38,8 @@ private:
 	void GIFPackedRegHandlerSTQ(const GIFPackedReg* RESTRICT r);
 	void GIFPackedRegHandlerUV(const GIFPackedReg* RESTRICT r);
 	void GIFPackedRegHandlerUV_Hack(const GIFPackedReg* RESTRICT r);
-	template<u32 prim, u32 adc, bool auto_flush, bool index_swap> void GIFPackedRegHandlerXYZF2(const GIFPackedReg* RESTRICT r);
-	template<u32 prim, u32 adc, bool auto_flush, bool index_swap> void GIFPackedRegHandlerXYZ2(const GIFPackedReg* RESTRICT r);
+	template<u32 prim, u32 adc, bool auto_flush> void GIFPackedRegHandlerXYZF2(const GIFPackedReg* RESTRICT r);
+	template<u32 prim, u32 adc, bool auto_flush> void GIFPackedRegHandlerXYZ2(const GIFPackedReg* RESTRICT r);
 	void GIFPackedRegHandlerFOG(const GIFPackedReg* RESTRICT r);
 	void GIFPackedRegHandlerA_D(const GIFPackedReg* RESTRICT r);
 	void GIFPackedRegHandlerNOP(const GIFPackedReg* RESTRICT r);
@@ -55,8 +55,8 @@ private:
 	GIFPackedRegHandlerC m_fpGIFPackedRegHandlerSTQRGBAXYZF2[8] = {};
 	GIFPackedRegHandlerC m_fpGIFPackedRegHandlerSTQRGBAXYZ2[8] = {};
 
-	template<u32 prim, bool auto_flush, bool index_swap> void GIFPackedRegHandlerSTQRGBAXYZF2(const GIFPackedReg* RESTRICT r, u32 size);
-	template<u32 prim, bool auto_flush, bool index_swap> void GIFPackedRegHandlerSTQRGBAXYZ2(const GIFPackedReg* RESTRICT r, u32 size);
+	template<u32 prim, bool auto_flush> void GIFPackedRegHandlerSTQRGBAXYZF2(const GIFPackedReg* RESTRICT r, u32 size);
+	template<u32 prim, bool auto_flush> void GIFPackedRegHandlerSTQRGBAXYZ2(const GIFPackedReg* RESTRICT r, u32 size);
 	void GIFPackedRegHandlerNOP(const GIFPackedReg* RESTRICT r, u32 size);
 
 	template<int i> void ApplyTEX0(GIFRegTEX0& TEX0);
@@ -68,8 +68,8 @@ private:
 	void GIFRegHandlerST(const GIFReg* RESTRICT r);
 	void GIFRegHandlerUV(const GIFReg* RESTRICT r);
 	void GIFRegHandlerUV_Hack(const GIFReg* RESTRICT r);
-	template<u32 prim, u32 adc, bool auto_flush, bool index_swap> void GIFRegHandlerXYZF2(const GIFReg* RESTRICT r);
-	template<u32 prim, u32 adc, bool auto_flush, bool index_swap> void GIFRegHandlerXYZ2(const GIFReg* RESTRICT r);
+	template<u32 prim, u32 adc, bool auto_flush> void GIFRegHandlerXYZF2(const GIFReg* RESTRICT r);
+	template<u32 prim, u32 adc, bool auto_flush> void GIFRegHandlerXYZ2(const GIFReg* RESTRICT r);
 	template<int i> void GIFRegHandlerTEX0(const GIFReg* RESTRICT r);
 	template<int i> void GIFRegHandlerCLAMP(const GIFReg* RESTRICT r);
 	void GIFRegHandlerFOG(const GIFReg* RESTRICT r);
@@ -102,21 +102,24 @@ private:
 	void GIFRegHandlerTRXDIR(const GIFReg* RESTRICT r);
 	void GIFRegHandlerHWREG(const GIFReg* RESTRICT r);
 
-	template<bool auto_flush, bool index_swap>
-	void SetPrimHandlers();
+	template<bool auto_flush> void SetPrimHandlers();
 
 	struct GSTransferBuffer
 	{
 		int x = 0, y = 0;
+		int w = 0, h = 0;
 		int start = 0, end = 0, total = 0;
 		u8* buff = nullptr;
+		GSVector4i rect = GSVector4i::zero();
 		GIFRegBITBLTBUF m_blit = {};
+		GIFRegTRXPOS m_pos = {};
+		GIFRegTRXREG m_reg = {};
 		bool write = false;
 
 		GSTransferBuffer();
 		~GSTransferBuffer();
 
-		void Init(int tx, int ty, const GIFRegBITBLTBUF& blit, bool write);
+		void Init(GIFRegTRXPOS& TRXPOS, GIFRegTRXREG& TRXREG, const GIFRegBITBLTBUF& blit, bool is_write);
 		bool Update(int tw, int th, int bpp, int& len);
 
 	} m_tr;
@@ -133,6 +136,7 @@ protected:
 	struct
 	{
 		GSVertex* buff;
+		GSVertex* buff_copy;            // same size buffer to copy/modify the original buffer
 		u32 head, tail, next, maxcount; // head: first vertex, tail: last vertex + 1, next: last indexed + 1
 		u32 xy_tail;
 		GSVector4i xy[4];
@@ -145,6 +149,21 @@ protected:
 		u32 tail;
 	} m_index = {};
 
+	struct
+	{
+		GSVertex* buff;
+		u32 head, tail, next, maxcount; // head: first vertex, tail: last vertex + 1, next: last indexed + 1
+		u32 xy_tail;
+		GSVector4i xy[4];
+		GSVector4i xyhead;
+	} m_draw_vertex = {};
+
+	struct
+	{
+		u16* buff;
+		u32 tail;
+	} m_draw_index = {};
+
 	void UpdateContext();
 	void UpdateScissor();
 
@@ -152,12 +171,10 @@ protected:
 
 	void GrowVertexBuffer();
 	bool IsAutoFlushDraw(u32 prim);
-	template<u32 prim, bool index_swap>
-	void HandleAutoFlush();
+	template<u32 prim> void HandleAutoFlush();
 	void CheckCLUTValidity(u32 prim);
 
-	template <u32 prim, bool auto_flush, bool index_swap>
-	void VertexKick(u32 skip);
+	template <u32 prim, bool auto_flush> void VertexKick(u32 skip);
 
 	// following functions need m_vt to be initialized
 
@@ -219,11 +236,19 @@ public:
 	GSVector4i temp_draw_rect = {};
 	std::unique_ptr<GSDumpBase> m_dump;
 	bool m_scissor_invalid = false;
+	bool m_quad_check_valid = false;
+	bool m_are_quads = false;
 	bool m_nativeres = false;
 	bool m_mipmap = false;
 	bool m_texflush_flag = false;
 	bool m_isPackedUV_HackFlag = false;
 	bool m_channel_shuffle = false;
+	bool m_using_temp_z = false;
+	bool m_temp_z_full_copy = false;
+	bool m_in_target_draw = false;
+	bool m_channel_shuffle_abort = false;
+
+	u32 m_target_offset = 0;
 	u8 m_scanmask_used = 0;
 	u32 m_dirty_gs_regs = 0;
 	int m_backed_up_ctx = 0;
@@ -236,7 +261,7 @@ public:
 	static int s_last_transfer_draw_n;
 	static int s_transfer_n;
 
-	static constexpr u32 STATE_VERSION = 8;
+	static constexpr u32 STATE_VERSION = 9;
 
 	enum REG_DIRTY
 	{
@@ -302,6 +327,8 @@ public:
 			int FBP;
 			int FBW;
 			int PSM;
+			int DBY;
+			int DBX;
 			GSRegDISPFB prevFramebufferReg;
 			GSVector2i prevDisplayOffset;
 			GSVector2i displayOffset;
@@ -416,7 +443,7 @@ public:
 
 	void DumpVertices(const std::string& filename);
 
-	bool TrianglesAreQuads(bool shuffle_check = false) const;
+	bool TrianglesAreQuads(bool shuffle_check = false);
 	PRIM_OVERLAP PrimitiveOverlap();
 	bool SpriteDrawWithoutGaps();
 	void CalculatePrimitiveCoversWithoutGaps();

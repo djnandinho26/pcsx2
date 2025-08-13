@@ -34,10 +34,12 @@
 #include "pcsx2/Recording/InputRecording.h"
 #include "pcsx2/Recording/InputRecordingControls.h"
 #include "pcsx2/SIO/Sio.h"
+#include "pcsx2/GS/GSExtra.h"
 
 #include "common/Assertions.h"
 #include "common/CocoaTools.h"
 #include "common/FileSystem.h"
+#include "common/Path.h"
 
 #include <QtCore/QDateTime>
 #include <QtCore/QDir>
@@ -217,6 +219,9 @@ void MainWindow::setupAdditionalUi()
 	m_ui.actionViewStatusBar->setChecked(status_bar_visible);
 	m_ui.statusBar->setVisible(status_bar_visible);
 
+	const bool show_game_grid = Host::GetBaseBoolSettingValue("UI", "GameListGridView", false);
+	updateGameGridActions(show_game_grid);
+
 	m_game_list_widget = new GameListWidget(getContentParent());
 	m_game_list_widget->initialize();
 	m_ui.actionGridViewShowTitles->setChecked(m_game_list_widget->getShowGridCoverTitles());
@@ -388,6 +393,7 @@ void MainWindow::connectSignals()
 	connect(m_game_list_widget, &GameListWidget::layoutChange, this, [this]() {
 		QSignalBlocker sb(m_ui.actionGridViewShowTitles);
 		m_ui.actionGridViewShowTitles->setChecked(m_game_list_widget->getShowGridCoverTitles());
+		updateGameGridActions(m_game_list_widget->isShowingGameGrid());
 	});
 
 	SettingWidgetBinder::BindWidgetToBoolSetting(nullptr, m_ui.actionViewStatusBarVerbose, "UI", "VerboseStatusBar", false);
@@ -502,10 +508,13 @@ void MainWindow::createRendererSwitchMenu()
 	};
 	const GSRendererType current_renderer = static_cast<GSRendererType>(
 		Host::GetBaseIntSettingValue("EmuCore/GS", "Renderer", static_cast<int>(GSRendererType::Auto)));
+
+	QActionGroup* switch_renderer_group = new QActionGroup(m_ui.menuDebugSwitchRenderer);
+
 	for (const GSRendererType renderer : renderers)
 	{
-		QAction* action = m_ui.menuDebugSwitchRenderer->addAction(
-			QString::fromUtf8(Pcsx2Config::GSOptions::GetRendererName(renderer)));
+		QAction* action = new QAction(
+			QString::fromUtf8(Pcsx2Config::GSOptions::GetRendererName(renderer)), switch_renderer_group);
 		action->setCheckable(true);
 		action->setChecked(current_renderer == renderer);
 		connect(action,
@@ -513,15 +522,10 @@ void MainWindow::createRendererSwitchMenu()
 				Host::SetBaseIntSettingValue("EmuCore/GS", "Renderer", static_cast<int>(renderer));
 				Host::CommitBaseSettingChanges();
 				g_emu_thread->applySettings();
-
-				// clear all others
-				for (QObject* obj : m_ui.menuDebugSwitchRenderer->children())
-				{
-					if (QAction* act = qobject_cast<QAction*>(obj); act && act != action)
-						act->setChecked(false);
-				}
 			});
 	}
+
+	m_ui.menuDebugSwitchRenderer->addActions(switch_renderer_group->actions());
 }
 
 void MainWindow::recreate()
@@ -1129,8 +1133,8 @@ bool MainWindow::shouldHideMainWindow() const
 {
 	// NOTE: We can't use isRenderingToMain() here, because this happens post-fullscreen-switch.
 	return (Host::GetBoolSettingValue("UI", "HideMainWindowWhenRunning", false) && !g_emu_thread->shouldRenderToMain()) ||
-		   (g_emu_thread->shouldRenderToMain() && (isRenderingFullscreen() || m_is_temporarily_windowed)) ||
-		   QtHost::InNoGUIMode();
+	       (g_emu_thread->shouldRenderToMain() && (isRenderingFullscreen() || m_is_temporarily_windowed)) ||
+	       Host::InNoGUIMode();
 }
 
 bool MainWindow::shouldMouseLock() const
@@ -1142,8 +1146,8 @@ bool MainWindow::shouldMouseLock() const
 		return false;
 
 	bool windowsHidden = (!g_debugger_window || g_debugger_window->isHidden()) &&
-						 (!m_controller_settings_window || m_controller_settings_window->isHidden()) &&
-						 (!m_settings_window || m_settings_window->isHidden());
+	                     (!m_controller_settings_window || m_controller_settings_window->isHidden()) &&
+	                     (!m_settings_window || m_settings_window->isHidden());
 
 	return windowsHidden && (isActiveWindow() || isRenderingFullscreen());
 }
@@ -1306,7 +1310,7 @@ bool MainWindow::requestShutdown(bool allow_confirm, bool allow_save_to_state, b
 	// reshow the main window during display updates, because otherwise fullscreen transitions and renderer switches
 	// would briefly show and then hide the main window. So instead, we do it on shutdown, here. Except if we're in
 	// batch mode, when we're going to exit anyway.
-	if (!isRenderingToMain() && isHidden() && !QtHost::InBatchMode() && !g_emu_thread->isRunningFullscreenUI())
+	if (!isRenderingToMain() && isHidden() && !Host::InBatchMode() && !g_emu_thread->isRunningFullscreenUI())
 		updateWindowState(true);
 
 	// Clear the VM valid state early. That way we can't do anything in the UI if we take a while to shut down.
@@ -1454,6 +1458,8 @@ void MainWindow::onGameListEntryContextMenuRequested(const QPoint& point)
 			connect(menu.addAction(tr("Check Wiki Page")), &QAction::triggered, [this, entry]() { goToWikiPage(entry); });
 		}
 
+		action = menu.addAction(tr("Open Screenshots Folder"));
+		connect(action, &QAction::triggered, [this, entry]() { openScreenshotsFolderForGame(entry); });
 		menu.addSeparator();
 
 		if (!s_vm_valid)
@@ -2060,7 +2066,7 @@ void MainWindow::onVMStopped()
 	updateInputRecordingActions(false);
 
 	// If we're closing or in batch mode, quit the whole application now.
-	if (m_is_closing || QtHost::InBatchMode())
+	if (m_is_closing || Host::InBatchMode())
 	{
 		quit();
 		return;
@@ -2169,56 +2175,55 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event)
 
 void MainWindow::dropEvent(QDropEvent* event)
 {
+	if (startFile(getFilenameFromMimeData(event->mimeData())))
+		event->acceptProposedAction();
+}
+
+bool MainWindow::startFile(const QString& filename)
+{
 	const auto mcLock = pauseAndLockVM();
 
 	// Check if memcard is busy, deny request if so
 	if (shouldAbortForMemcardBusy(mcLock))
 	{
-		return;
+		return false;
 	}
 
-	const QString filename(getFilenameFromMimeData(event->mimeData()));
-	const std::string filename_str(filename.toStdString());
+	std::string filename_str = filename.toStdString();
+
 	if (VMManager::IsSaveStateFileName(filename_str))
 	{
-		event->acceptProposedAction();
-
 		// can't load a save state without a current VM
 		if (s_vm_valid)
 			g_emu_thread->loadState(filename);
 		else
 			QMessageBox::critical(this, tr("Load State Failed"), tr("Cannot load a save state without a running VM."));
 
-		return;
+		return true;
 	}
 
 	if (!VMManager::IsLoadableFileName(filename_str))
-		return;
+		return false;
 
 	// if we're already running, do a disc change, otherwise start
 	if (!s_vm_valid)
 	{
-		event->acceptProposedAction();
 		doStartFile(std::nullopt, filename);
-		return;
+		return true;
 	}
 
 	if (VMManager::IsDiscFileName(filename_str) || VMManager::IsBlockDumpFileName(filename_str))
 	{
-		event->acceptProposedAction();
 		doDiscChange(CDVD_SourceType::Iso, filename);
 	}
 	else if (VMManager::IsElfFileName(filename_str))
 	{
 		const auto lock = pauseAndLockVM();
 
-		event->acceptProposedAction();
-
-		if (QMessageBox::question(this, tr("Confirm Reset"),
-				tr("The new ELF cannot be loaded without resetting the virtual machine. Do you want to reset the virtual machine now?")) !=
-			QMessageBox::Yes)
+		if (QMessageBox::Yes != QMessageBox::question(this, tr("Confirm Reset"),
+				tr("The new ELF cannot be loaded without resetting the virtual machine. Do you want to reset the virtual machine now?")))
 		{
-			return;
+			return true;
 		}
 
 		g_emu_thread->setELFOverride(filename);
@@ -2226,17 +2231,15 @@ void MainWindow::dropEvent(QDropEvent* event)
 	}
 	else if (VMManager::IsGSDumpFileName(filename_str))
 	{
-		event->acceptProposedAction();
-
 		if (!GSDumpReplayer::IsReplayingDump())
 		{
 			QMessageBox::critical(this, tr("Error"), tr("Cannot change from game to GS dump without shutting down first."));
-			return;
 		}
 
 		g_emu_thread->changeGSDump(filename);
 		switchToEmulationView();
 	}
+	return true;
 }
 
 void MainWindow::moveEvent(QMoveEvent* event)
@@ -2819,7 +2822,7 @@ QString MainWindow::getDiscDevicePath(const QString& title)
 	return ret;
 }
 
-void MainWindow::startGameListEntry(const GameList::Entry* entry, std::optional<s32> save_slot, std::optional<bool> fast_boot)
+void MainWindow::startGameListEntry(const GameList::Entry* entry, std::optional<s32> save_slot, std::optional<bool> fast_boot, bool load_backup)
 {
 	std::shared_ptr<VMBootParameters> params = std::make_shared<VMBootParameters>();
 	params->fast_boot = fast_boot;
@@ -2828,7 +2831,7 @@ void MainWindow::startGameListEntry(const GameList::Entry* entry, std::optional<
 
 	if (save_slot.has_value() && !entry->serial.empty())
 	{
-		std::string state_filename = VMManager::GetSaveStateFileName(entry->serial.c_str(), entry->crc, save_slot.value());
+		std::string state_filename = VMManager::GetSaveStateFileName(entry->serial.c_str(), entry->crc, save_slot.value(), load_backup);
 		if (!FileSystem::FileExists(state_filename.c_str()))
 		{
 			QMessageBox::critical(this, tr("Error"), tr("This save state does not exist."));
@@ -2908,6 +2911,39 @@ void MainWindow::goToWikiPage(const GameList::Entry* entry)
 	QtUtils::OpenURL(this, fmt::format("https://wiki.pcsx2.net/{}", entry->serial).c_str());
 }
 
+void MainWindow::openScreenshotsFolderForGame(const GameList::Entry* entry)
+{
+	if (!entry || entry->title.empty())
+		return;
+
+	// if disabled open the snapshots folder
+	if (!EmuConfig.GS.OrganizeScreenshotsByGame)
+	{
+		QtUtils::OpenURL(this, QUrl::fromLocalFile(QString::fromStdString(EmuFolders::Snapshots)));
+		return;
+	}
+
+	std::string game_name = entry->title;
+	Path::SanitizeFileName(&game_name);
+	if (game_name.length() > 219)
+	{
+		game_name.resize(219);
+	}
+	const std::string game_dir = Path::Combine(EmuFolders::Snapshots, game_name);
+
+	if (!FileSystem::DirectoryExists(game_dir.c_str()))
+	{
+		if (!FileSystem::CreateDirectoryPath(game_dir.c_str(), false))
+		{
+			QMessageBox::critical(this, tr("Error"), tr("Failed to create screenshots directory '%1'.").arg(QString::fromStdString(game_dir)));
+			return;
+		}
+	}
+
+	const QFileInfo fi(QString::fromStdString(game_dir));
+	QtUtils::OpenURL(this, QUrl::fromLocalFile(fi.absoluteFilePath()));	
+}
+
 std::optional<bool> MainWindow::promptForResumeState(const QString& save_state_path)
 {
 	if (save_state_path.isEmpty())
@@ -2953,12 +2989,12 @@ std::optional<bool> MainWindow::promptForResumeState(const QString& save_state_p
 	return std::nullopt;
 }
 
-void MainWindow::loadSaveStateSlot(s32 slot)
+void MainWindow::loadSaveStateSlot(s32 slot, bool load_backup)
 {
 	if (s_vm_valid)
 	{
 		// easy when we're running
-		g_emu_thread->loadStateFromSlot(slot);
+		g_emu_thread->loadStateFromSlot(slot, load_backup);
 		return;
 	}
 	else
@@ -2968,7 +3004,7 @@ void MainWindow::loadSaveStateSlot(s32 slot)
 		if (!entry)
 			return;
 
-		startGameListEntry(entry, slot, std::nullopt);
+		startGameListEntry(entry, slot, std::nullopt, load_backup);
 	}
 }
 
@@ -3015,15 +3051,6 @@ void MainWindow::populateLoadStateMenu(QMenu* menu, const QString& filename, con
 
 	QAction* delete_save_states_action = menu->addAction(tr("Delete Save States..."));
 
-	// don't include undo in the right click menu
-	if (!is_right_click_menu)
-	{
-		QAction* load_undo_state = menu->addAction(tr("Undo Load State"));
-		load_undo_state->setEnabled(false); // CanUndoLoadState()
-		// connect(load_undo_state, &QAction::triggered, this, &QtHostInterface::undoLoadState);
-		menu->addSeparator();
-	}
-
 	const QByteArray game_serial_utf8(serial.toUtf8());
 	std::string state_filename;
 	FILESYSTEM_STAT_DATA sd;
@@ -3050,6 +3077,18 @@ void MainWindow::populateLoadStateMenu(QMenu* menu, const QString& filename, con
 
 		action = menu->addAction(tr("Load Slot %1 (%2)").arg(i).arg(formatTimestampForSaveStateMenu(sd.ModificationTime)));
 		connect(action, &QAction::triggered, [this, i]() { loadSaveStateSlot(i); });
+		has_any_states = true;
+	}
+
+	for (s32 i = 1; i <= VMManager::NUM_SAVE_STATE_SLOTS; i++)
+	{
+		FILESYSTEM_STAT_DATA sd;
+		state_filename = VMManager::GetSaveStateFileName(game_serial_utf8.constData(), crc, i, true);
+		if (!FileSystem::StatFile(state_filename.c_str(), &sd))
+			continue;
+
+		action = menu->addAction(tr("Load Backup Slot %1 (%2)").arg(i).arg(formatTimestampForSaveStateMenu(sd.ModificationTime)));
+		connect(action, &QAction::triggered, [this, i]() { loadSaveStateSlot(i, true); });
 		has_any_states = true;
 	}
 
@@ -3108,6 +3147,14 @@ void MainWindow::updateGameDependentActions()
 	m_ui.actionEditCheats->setEnabled(can_use_pnach);
 	m_ui.actionEditPatches->setEnabled(can_use_pnach);
 	m_ui.actionReloadPatches->setEnabled(s_vm_valid);
+}
+
+void MainWindow::updateGameGridActions(const bool show_game_grid)
+{
+	m_ui.actionGridViewShowTitles->setEnabled(show_game_grid);
+	m_ui.actionGridViewZoomIn->setEnabled(show_game_grid);
+	m_ui.actionGridViewZoomOut->setEnabled(show_game_grid);
+	m_ui.actionGridViewRefreshCovers->setEnabled(show_game_grid);
 }
 
 void MainWindow::doStartFile(std::optional<CDVD_SourceType> source, const QString& path)

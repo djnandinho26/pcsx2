@@ -335,14 +335,14 @@ bool Log::SetFileOutputLevel(LOGLEVEL level, std::string path)
 
 	const bool was_enabled = (s_file_level > LOGLEVEL_NONE);
 	const bool new_enabled = (level > LOGLEVEL_NONE && !path.empty());
-	if (was_enabled != new_enabled || (new_enabled && path == s_file_path))
+	if (was_enabled != new_enabled || (new_enabled && path != s_file_path))
 	{
 		if (new_enabled)
 		{
 			if (!s_file_handle || s_file_path != path)
 			{
 				s_file_handle.reset();
-				s_file_handle = FileSystem::OpenManagedCFile(path.c_str(), "wb");
+				s_file_handle = FileSystem::OpenManagedSharedCFile(path.c_str(), "wb", FileSystem::FileShareMode::DenyWrite);
 				if (s_file_handle)
 				{
 					s_file_path = std::move(path);

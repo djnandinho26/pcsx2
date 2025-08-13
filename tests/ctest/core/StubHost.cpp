@@ -6,7 +6,6 @@
 #include "pcsx2/GameList.h"
 #include "pcsx2/Host.h"
 #include "pcsx2/ImGui/FullscreenUI.h"
-#include "pcsx2/ImGui/ImGuiAnimated.h"
 #include "pcsx2/ImGui/ImGuiFullscreen.h"
 #include "pcsx2/ImGui/ImGuiManager.h"
 #include "pcsx2/Input/InputManager.h"
@@ -54,6 +53,16 @@ bool Host::ConfirmMessage(const std::string_view title, const std::string_view m
 
 void Host::OpenURL(const std::string_view url)
 {
+}
+
+bool Host::InBatchMode()
+{
+	return false;
+}
+
+bool Host::InNoGUIMode()
+{
+	return false;
 }
 
 bool Host::CopyTextToClipboard(const std::string_view text)

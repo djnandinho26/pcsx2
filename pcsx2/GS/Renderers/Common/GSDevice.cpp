@@ -46,8 +46,8 @@ const char* shaderName(ShaderConvert value)
 		case ShaderConvert::DATM_0:                 return "ps_datm0";
 		case ShaderConvert::DATM_1_RTA_CORRECTION:  return "ps_datm1_rta_correction";
 		case ShaderConvert::DATM_0_RTA_CORRECTION:  return "ps_datm0_rta_correction";
-		case ShaderConvert::HDR_INIT:               return "ps_hdr_init";
-		case ShaderConvert::HDR_RESOLVE:            return "ps_hdr_resolve";
+		case ShaderConvert::COLCLIP_INIT:           return "ps_colclip_init";
+		case ShaderConvert::COLCLIP_RESOLVE:        return "ps_colclip_resolve";
 		case ShaderConvert::RTA_CORRECTION:         return "ps_rta_correction";
 		case ShaderConvert::RTA_DECORRECTION:       return "ps_rta_decorrection";
 		case ShaderConvert::TRANSPARENCY_FILTER:    return "ps_filter_transparency";
@@ -68,6 +68,7 @@ const char* shaderName(ShaderConvert value)
 		case ShaderConvert::DEPTH_COPY:             return "ps_depth_copy";
 		case ShaderConvert::DOWNSAMPLE_COPY:        return "ps_downsample_copy";
 		case ShaderConvert::RGBA_TO_8I:             return "ps_convert_rgba_8i";
+		case ShaderConvert::RGB5A1_TO_8I:           return "ps_convert_rgb5a1_8i";
 		case ShaderConvert::CLUT_4:                 return "ps_convert_clut_4";
 		case ShaderConvert::CLUT_8:                 return "ps_convert_clut_8";
 		case ShaderConvert::YUV:                    return "ps_yuv";
@@ -103,7 +104,9 @@ const char* shaderName(PresentShader value)
 enum class TextureLabel
 {
 	ColorRT,
-	HDRRT,
+	ColorHQRT,
+	ColorHDRRT,
+	ColorClipRT,
 	U16RT,
 	U32RT,
 	DepthStencil,
@@ -127,8 +130,12 @@ static TextureLabel GetTextureLabel(GSTexture::Type type, GSTexture::Format form
 			{
 				case GSTexture::Format::Color:
 					return TextureLabel::ColorRT;
-				case GSTexture::Format::HDRColor:
-					return TextureLabel::HDRRT;
+				case GSTexture::Format::ColorHQ:
+					return TextureLabel::ColorHQRT;
+				case GSTexture::Format::ColorHDR:
+					return TextureLabel::ColorHDRRT;
+				case GSTexture::Format::ColorClip:
+					return TextureLabel::ColorClipRT;
 				case GSTexture::Format::UInt16:
 					return TextureLabel::U16RT;
 				case GSTexture::Format::UInt32:
@@ -149,6 +156,7 @@ static TextureLabel GetTextureLabel(GSTexture::Type type, GSTexture::Format form
 				case GSTexture::Format::BC2:
 				case GSTexture::Format::BC3:
 				case GSTexture::Format::BC7:
+				case GSTexture::Format::ColorHDR:
 					return TextureLabel::ReplacementTexture;
 				default:
 					return TextureLabel::Other;
@@ -163,14 +171,19 @@ static TextureLabel GetTextureLabel(GSTexture::Type type, GSTexture::Format form
 	}
 }
 
+// Debug names
 static const char* TextureLabelString(TextureLabel label)
 {
 	switch (label)
 	{
 		case TextureLabel::ColorRT:
 			return "Color RT";
-		case TextureLabel::HDRRT:
-			return "HDR RT";
+		case TextureLabel::ColorHQRT:
+			return "Color HQ RT";
+		case TextureLabel::ColorHDRRT:
+			return "Color HDR RT";
+		case TextureLabel::ColorClipRT:
+			return "Color Clip RT";
 		case TextureLabel::U16RT:
 			return "U16 RT";
 		case TextureLabel::U32RT:
@@ -318,12 +331,6 @@ bool GSDevice::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 
 void GSDevice::Destroy()
 {
-	if (m_imgui_font)
-	{
-		Recycle(m_imgui_font);
-		m_imgui_font = nullptr;
-	}
-
 	ClearCurrent();
 	PurgePool();
 }
@@ -395,37 +402,108 @@ void GSDevice::InvalidateRenderTarget(GSTexture* t)
 	t->SetState(GSTexture::State::Invalidated);
 }
 
-bool GSDevice::UpdateImGuiFontTexture()
+void GSDevice::UpdateImGuiTextures()
 {
-	ImGuiIO& io = ImGui::GetIO();
-
-	unsigned char* pixels;
-	int width, height;
-	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-
-	const GSVector4i r(0, 0, width, height);
-	const int pitch = sizeof(u32) * width;
-
-	if (m_imgui_font && m_imgui_font->GetWidth() == width && m_imgui_font->GetHeight() == height &&
-		m_imgui_font->Update(r, pixels, pitch))
+	// TODO, use ImDrawData https://github.com/ocornut/imgui/issues/8597#issuecomment-2871835598
+	for (ImTextureData* im_tex : ImGui::GetPlatformIO().Textures)
 	{
-		io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(m_imgui_font->GetNativeHandle()));
-		return true;
-	}
+		switch (im_tex->Status)
+		{
+			case ImTextureStatus_OK:
+			case ImTextureStatus_Destroyed:
+				continue;
+			case ImTextureStatus_WantCreate:
+			{
+				GSTexture* gs_tex = g_gs_device->CreateTexture(im_tex->Width, im_tex->Height, 1, GSTexture::Format::Color);
+				if (!gs_tex)
+					pxFailRel("Failed to create ImGui texture");
 
-	GSTexture* new_font = CreateTexture(width, height, 1, GSTexture::Format::Color);
-	if (!new_font || !new_font->Update(r, pixels, pitch))
+				im_tex->SetTexID(reinterpret_cast<ImTextureID>(gs_tex->GetNativeHandle()));
+				im_tex->BackendUserData = gs_tex;
+				[[fallthrough]];
+			}
+			case ImTextureStatus_WantUpdates:
+			{
+				// If we fell through from WantCreate, then we are uploading the full size
+				// Otherwise, we are just updating the specified region
+				// clange-format off
+				const int upload_x = (im_tex->Status == ImTextureStatus_WantCreate) ? 0 : im_tex->UpdateRect.x;
+				const int upload_y = (im_tex->Status == ImTextureStatus_WantCreate) ? 0 : im_tex->UpdateRect.y;
+				const int upload_w = (im_tex->Status == ImTextureStatus_WantCreate) ? im_tex->Width : im_tex->UpdateRect.w;
+				const int upload_h = (im_tex->Status == ImTextureStatus_WantCreate) ? im_tex->Height : im_tex->UpdateRect.h;
+				const int upload_pitch = upload_w * im_tex->BytesPerPixel;
+				// clange-format on
+
+				const GSVector4i rect{
+					upload_x,
+					upload_y,
+					upload_x + upload_w,
+					upload_y + upload_h,
+				};
+
+				GSTexture* gs_tex = static_cast<GSTexture*>(im_tex->BackendUserData);
+				GSTexture::GSMap map;
+				if (gs_tex->Map(map, &rect))
+				{
+					for (int y = 0; y < upload_h; y++)
+						std::memcpy(map.bits + map.pitch * y, im_tex->GetPixelsAt(rect.x, rect.y + y), upload_pitch);
+
+					gs_tex->Unmap();
+				}
+				else
+				{
+					for (int y = 0; y < upload_h; y++)
+						gs_tex->Update({rect.left, rect.top + y, rect.right, rect.top + y + 1},
+							im_tex->GetPixelsAt(rect.x, rect.y + y), upload_pitch);
+				}
+
+				im_tex->Status = ImTextureStatus_OK;
+				break;
+			}
+			case ImTextureStatus_WantDestroy:
+			{
+				GSTexture* gs_tex = static_cast<GSTexture*>(im_tex->BackendUserData);
+				if (gs_tex == nullptr)
+					break;
+
+				// While it's unlikely we're going to reuse the same size as imgui for rendering,
+				// imgui may request a new atlas of the same size if old font sizes are evicted.
+				Recycle(gs_tex);
+
+				im_tex->SetTexID(ImTextureID_Invalid);
+				im_tex->BackendUserData = nullptr;
+				im_tex->Status = ImTextureStatus_Destroyed;
+				break;
+			}
+			default:
+				pxAssert(false);
+				break;
+		}
+	}
+}
+
+void GSDevice::DestroyImGuiTextures()
+{
+	if (!ImGui::GetCurrentContext())
+		return;
+
+	for (ImTextureData* im_tex : ImGui::GetPlatformIO().Textures)
 	{
-		io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(m_imgui_font ? m_imgui_font->GetNativeHandle() : nullptr));
-		return false;
+		if (im_tex->Status != ImTextureStatus_Destroyed)
+		{
+			GSTexture* gs_tex = static_cast<GSTexture*>(im_tex->BackendUserData);
+			if (gs_tex == nullptr)
+				continue;
+
+			Recycle(gs_tex);
+
+			pxAssert(im_tex->RefCount == 1);
+
+			im_tex->SetTexID(ImTextureID_Invalid);
+			im_tex->BackendUserData = nullptr;
+			im_tex->Status = ImTextureStatus_Destroyed;
+		}
 	}
-
-	// Don't bother recycling, it's unlikely we're going to reuse the same size as imgui for rendering.
-	delete m_imgui_font;
-
-	m_imgui_font = new_font;
-	ImGui::GetIO().Fonts->SetTexID(reinterpret_cast<ImTextureID>(new_font->GetNativeHandle()));
-	return true;
 }
 
 void GSDevice::TextureRecycleDeleter::operator()(GSTexture* const tex)
@@ -481,6 +559,7 @@ GSTexture* GSDevice::FetchSurface(GSTexture::Type type, int width, int height, i
 			{
 				ERROR_LOG("GS: Memory allocation failure for {}x{} texture. Purging pool and retrying.", size.x, size.y);
 				PurgePool();
+				t = CreateSurface(type, size.x, size.y, levels, format);
 				if (!t)
 				{
 					ERROR_LOG("GS: Memory allocation failure for {}x{} texture after purging pool.", size.x, size.y);
@@ -756,6 +835,7 @@ void GSDevice::ShadeBoost()
 			static_cast<float>(GSConfig.ShadeBoost_Brightness) * (1.0f / 50.0f),
 			static_cast<float>(GSConfig.ShadeBoost_Contrast) * (1.0f / 50.0f),
 			static_cast<float>(GSConfig.ShadeBoost_Saturation) * (1.0f / 50.0f),
+			static_cast<float>(GSConfig.ShadeBoost_Gamma) * (1.0f / 50.0f),
 		};
 
 		DoShadeBoost(m_current, m_target_tmp, params);
@@ -904,6 +984,7 @@ bool GSHWDrawConfig::BlendState::IsEffective(ColorMaskSelector colormask) const
 
 // clang-format off
 
+// Maps PS2 blend modes to our best approximation of them with PC hardware
 const std::array<HWBlend, 3*3*3*3> GSDevice::m_blendMap =
 {{
 	{ BLEND_NO_REC             , OP_ADD          , CONST_ONE       , CONST_ZERO}      , // 0000: (Cs - Cs)*As + Cs ==> Cs

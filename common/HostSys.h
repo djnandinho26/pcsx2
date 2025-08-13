@@ -181,6 +181,7 @@ private:
 extern u64 GetTickFrequency();
 extern u64 GetCPUTicks();
 extern u64 GetPhysicalMemory();
+extern u64 GetAvailablePhysicalMemory();
 /// Spin for a short period of time (call while spinning waiting for a lock)
 /// Returns the approximate number of ns that passed
 extern u32 ShortSpin();
@@ -190,6 +191,16 @@ extern const u32 SPIN_TIME_NS;
 [[noreturn]] void AbortWithMessage(const char* msg);
 
 extern std::string GetOSVersionString();
+
+struct CPUInfo {
+	std::string name;
+	u32 num_big_cores;
+	u32 num_small_cores;
+	u32 num_threads;
+	u32 num_clusters;
+};
+
+const CPUInfo& GetCPUInfo();
 
 namespace Common
 {

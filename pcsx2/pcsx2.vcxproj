@@ -31,6 +31,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(DepsIncludeDir)\plutovg;$(DepsIncludeDir)\plutosvg</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(DepsIncludeDir)\SDL3</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(SolutionDir)3rdparty\include</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(SolutionDir)3rdparty\fmt\include</AdditionalIncludeDirectories>
@@ -63,7 +64,7 @@
       <ForcedIncludeFiles>PrecompiledHeader.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
       <PreprocessorDefinitions>C4_NO_DEBUG_BREAK;ST_NO_EXCEPTION_HANDLING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Platform)'!='ARM64'">ENABLE_RAINTEGRATION;ENABLE_OPENGL;ENABLE_VULKAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <PreprocessorDefinitions Condition="'$(Platform)'=='x64'">XBYAK_NO_EXCEPTION;ZYCORE_STATIC_DEFINE;ZYDIS_STATIC_DEFINE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Platform)'=='x64'">XBYAK_NO_EXCEPTION;ZYCORE_STATIC_BUILD;ZYDIS_STATIC_BUILD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Platform)'=='ARM64'">VIXL_INCLUDE_TARGET_AARCH64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
     </ClCompile>
@@ -195,6 +196,7 @@
     <ClCompile Include="DEV9\Sessions\TCP_Session\TCP_Session_Out.cpp" />
     <ClCompile Include="DEV9\Win32\pcap_io_win32.cpp" />
     <ClCompile Include="DEV9\Sessions\BaseSession.cpp" />
+    <ClCompile Include="DEV9\Sessions\UDP_Session\UDP_Common.cpp" />
     <ClCompile Include="DEV9\Sessions\UDP_Session\UDP_FixedPort.cpp" />
     <ClCompile Include="DEV9\Sessions\UDP_Session\UDP_Session.cpp" />
     <ClCompile Include="DEV9\smap.cpp" />
@@ -636,6 +638,7 @@
     <ClInclude Include="DEV9\Sessions\BaseSession.h" />
     <ClInclude Include="DEV9\Sessions\ICMP_Session\ICMP_Session.h" />
     <ClInclude Include="DEV9\Sessions\TCP_Session\TCP_Session.h" />
+    <ClInclude Include="DEV9\Sessions\UDP_Session\UDP_Common.h" />
     <ClInclude Include="DEV9\Sessions\UDP_Session\UDP_FixedPort.h" />
     <ClInclude Include="DEV9\Sessions\UDP_Session\UDP_BaseSession.h" />
     <ClInclude Include="DEV9\Sessions\UDP_Session\UDP_Session.h" />
@@ -1017,6 +1020,9 @@
     </ProjectReference>
     <ProjectReference Include="..\3rdparty\ccc\ccc.vcxproj">
       <Project>{2589f8ce-ea77-4b73-911e-64074569795b}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\3rdparty\zydis\zydis.vcxproj" Condition="'$(Platform)'=='x64'">
+      <Project>{67d0160c-0fe4-44b9-ac2e-82bbcf4104df}</Project>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

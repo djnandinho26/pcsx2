@@ -65,6 +65,8 @@ GSTextureOGL::GSTextureOGL(Type type, int width, int height, int levels, Format 
 
 		// 4 channel normalized
 		case Format::Color:
+		case Format::ColorHQ:
+		case Format::ColorHDR:
 			gl_fmt = GL_RGBA8;
 			m_int_format = GL_RGBA;
 			m_int_type = GL_UNSIGNED_BYTE;
@@ -72,7 +74,7 @@ GSTextureOGL::GSTextureOGL(Type type, int width, int height, int levels, Format 
 			break;
 
 		// 4 channel float
-		case Format::HDRColor:
+		case Format::ColorClip:
 			gl_fmt = GL_RGBA16;
 			m_int_format = GL_RGBA;
 			m_int_type = GL_UNSIGNED_SHORT;
@@ -361,7 +363,7 @@ std::unique_ptr<GSDownloadTextureOGL> GSDownloadTextureOGL::Create(u32 width, u3
 	const u32 buffer_size = GetBufferSize(width, height, format, TEXTURE_UPLOAD_PITCH_ALIGNMENT);
 
 	const bool use_buffer_storage = (GLAD_GL_VERSION_4_4 || GLAD_GL_ARB_buffer_storage || GLAD_GL_EXT_buffer_storage) &&
-									!GSDeviceOGL::GetInstance()->IsDownloadPBODisabled();
+	                                !GSDeviceOGL::GetInstance()->IsDownloadPBODisabled();
 	if (use_buffer_storage)
 	{
 		GLuint buffer_id;

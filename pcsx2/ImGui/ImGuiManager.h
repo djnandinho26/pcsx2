@@ -17,7 +17,7 @@ enum class InputLayout : u8;
 namespace ImGuiManager
 {
 	/// Sets the path to the font to use. Empty string means to use the default.
-	void SetFontPathAndRange(std::string path, std::vector<u16> range);
+	void SetFontPath(std::string path);
 
 	/// Initializes ImGui, creates fonts, etc.
 	bool Initialize();
@@ -50,25 +50,20 @@ namespace ImGuiManager
 	/// Returns the scale of all on-screen elements.
 	float GetGlobalScale();
 
-	/// Returns true if fullscreen fonts are present.
-	bool HasFullscreenFonts();
-
-	/// Allocates/adds fullscreen fonts if they're not loaded.
-	bool AddFullscreenFontsIfMissing();
-
 	/// Returns the standard font for external drawing.
 	ImFont* GetStandardFont();
 
 	/// Returns the fixed-width font for external drawing.
 	ImFont* GetFixedFont();
 
-	/// Returns the medium font for external drawing, scaled by ImGuiFullscreen.
-	/// This font is allocated on demand.
-	ImFont* GetMediumFont();
+	// Returns the standard font size for external drawing.
+	float GetFontSizeStandard();
 
-	/// Returns the large font for external drawing, scaled by ImGuiFullscreen.
-	/// This font is allocated on demand.
-	ImFont* GetLargeFont();
+	// Returns the medium font size for external drawing, matching the size used by ImGuiFullscreen.
+	float GetFontSizeMedium();
+
+	// Returns the large font size for external drawing, matching the size used by ImGuiFullscreen.
+	float GetFontSizeLarge();
 
 	/// Returns true if imgui wants to intercept text input.
 	bool WantsTextInput();
@@ -96,6 +91,12 @@ namespace ImGuiManager
 
 	/// Called on the CPU thread when any input event fires. Allows imgui to take over controller navigation.
 	bool ProcessGenericInputEvent(GenericInputBinding key, InputLayout layout, float value);
+
+	/// Called to swap North/West gamepad buttons within ImGui
+	void SwapGamepadNorthWest(bool value);
+
+	/// Checks if the North/West gamepad buttons are swapped within ImGui
+	bool IsGamepadNorthWestSwapped();
 
 	/// Sets an image and scale for a software cursor. Software cursors can be used for things like crosshairs.
 	void SetSoftwareCursor(u32 index, std::string image_path, float image_scale, u32 multiply_color = 0xFFFFFF);

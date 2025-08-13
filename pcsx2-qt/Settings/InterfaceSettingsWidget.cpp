@@ -98,6 +98,7 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* dialog, QWidget
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.renderToSeparateWindow, "UI", "RenderToSeparateWindow", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.hideMainWindow, "UI", "HideMainWindowWhenRunning", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.disableWindowResizing, "UI", "DisableWindowResize", false);
+	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.startFullscreenUI, "UI", "StartBigPictureMode", false);
 	connect(m_ui.renderToSeparateWindow, &QCheckBox::checkStateChanged, this, &InterfaceSettingsWidget::onRenderToSeparateWindowChanged);
 
 	SettingWidgetBinder::BindWidgetToEnumSetting(sif, m_ui.theme, "UI", "Theme", THEME_NAMES, THEME_VALUES,
@@ -165,10 +166,10 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* dialog, QWidget
 		tr("Hides the mouse pointer/cursor when the emulator is in fullscreen mode."));
 	dialog->registerWidgetHelp(
 		m_ui.renderToSeparateWindow, tr("Render To Separate Window"), tr("Unchecked"),
-		tr("Renders the game to a separate window, instead of the main window. If unchecked, the game will display over the top of the game list."));
+		tr("Renders the game to a separate window, instead of the main window. If unchecked, the game will display over the game list."));
 	dialog->registerWidgetHelp(
 		m_ui.hideMainWindow, tr("Hide Main Window When Running"), tr("Unchecked"),
-		tr("Hides the main window (with the game list) when a game is running, requires Render To Separate Window to be enabled."));
+		tr("Hides the main window (with the game list) when a game is running. Requires Render To Separate Window to be enabled."));
 	dialog->registerWidgetHelp(
 		m_ui.discordPresence, tr("Enable Discord Presence"), tr("Unchecked"),
 		tr("Shows the game you are currently playing as part of your profile in Discord."));
@@ -181,6 +182,9 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* dialog, QWidget
 	dialog->registerWidgetHelp(
 		m_ui.disableWindowResizing, tr("Disable Window Resizing"), tr("Unchecked"),
 		tr("Prevents the main window from being resized."));
+	dialog->registerWidgetHelp(
+		m_ui.startFullscreenUI, tr("Start Big Picture Mode"), tr("Unchecked"),
+		tr("Automatically starts Big Picture Mode instead of the regular Qt interface when PCSX2 launches."));
 
 	onRenderToSeparateWindowChanged();
 }

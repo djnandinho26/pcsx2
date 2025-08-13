@@ -636,7 +636,7 @@ void Pcsx2Config::CpuOptions::LoadSave(SettingsWrapper& wrap)
 	Recompiler.LoadSave(wrap);
 }
 
-const char* Pcsx2Config::GSOptions::AspectRatioNames[] = {
+const char* Pcsx2Config::GSOptions::AspectRatioNames[(size_t)AspectRatioType::MaxCount + 1] = {
 	"Stretch",
 	"Auto 4:3/3:2",
 	"4:3",
@@ -644,7 +644,7 @@ const char* Pcsx2Config::GSOptions::AspectRatioNames[] = {
 	"10:7",
 	nullptr};
 
-const char* Pcsx2Config::GSOptions::FMVAspectRatioSwitchNames[] = {
+const char* Pcsx2Config::GSOptions::FMVAspectRatioSwitchNames[(size_t)FMVAspectRatioSwitchType::MaxCount + 1] = {
 	"Off",
 	"Auto 4:3/3:2",
 	"4:3",
@@ -670,6 +670,18 @@ const char* Pcsx2Config::GSOptions::CaptureContainers[] = {
 	"mp3",
 	nullptr};
 const char* Pcsx2Config::GSOptions::DEFAULT_CAPTURE_CONTAINER = "mp4";
+
+const char* Pcsx2Config::AchievementsOptions::OverlayPositionNames[(size_t)AchievementOverlayPosition::MaxCount + 1] = {
+	"TopLeft",
+	"TopCenter", 
+	"TopRight",
+	"CenterLeft",
+	"Center",
+	"CenterRight",
+	"BottomLeft",
+	"BottomCenter",
+	"BottomRight",
+	nullptr};
 
 const char* Pcsx2Config::GSOptions::GetRendererName(GSRendererType type)
 {
@@ -838,6 +850,7 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 		OpEqu(ShadeBoost_Brightness) &&
 		OpEqu(ShadeBoost_Contrast) &&
 		OpEqu(ShadeBoost_Saturation) &&
+		OpEqu(ShadeBoost_Gamma) &&
 		OpEqu(PNGCompressionLevel) &&
 		OpEqu(SaveDrawStart) &&
 		OpEqu(SaveDrawCount) &&
@@ -908,6 +921,7 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapIntEnumEx(ScreenshotSize, "ScreenshotSize");
 	SettingsWrapIntEnumEx(ScreenshotFormat, "ScreenshotFormat");
 	SettingsWrapEntry(ScreenshotQuality);
+	SettingsWrapBitBool(OrganizeScreenshotsByGame);
 	SettingsWrapEntry(StretchY);
 	SettingsWrapEntryEx(Crop[0], "CropLeft");
 	SettingsWrapEntryEx(Crop[1], "CropTop");
@@ -1029,6 +1043,7 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitfield(ShadeBoost_Brightness);
 	SettingsWrapBitfield(ShadeBoost_Contrast);
 	SettingsWrapBitfield(ShadeBoost_Saturation);
+	SettingsWrapBitfield(ShadeBoost_Gamma);
 	SettingsWrapBitfield(ExclusiveFullscreenControl);
 	SettingsWrapBitfieldEx(PNGCompressionLevel, "png_compression_level");
 	SettingsWrapBitfieldEx(SaveDrawStart, "SaveDrawStart");
@@ -1830,12 +1845,24 @@ Pcsx2Config::AchievementsOptions::AchievementsOptions()
 	Notifications = true;
 	LeaderboardNotifications = true;
 	SoundEffects = true;
+	InfoSound = true;
+	UnlockSound = true;
+	LBSubmitSound = true;
 	Overlays = true;
 }
 
 void Pcsx2Config::AchievementsOptions::LoadSave(SettingsWrapper& wrap)
 {
 	SettingsWrapSection("Achievements");
+
+	if (InfoSoundName.empty())
+		InfoSoundName = Path::Combine(EmuFolders::Resources, DEFAULT_INFO_SOUND_NAME);
+
+	if (UnlockSoundName.empty())
+		UnlockSoundName = Path::Combine(EmuFolders::Resources, DEFAULT_UNLOCK_SOUND_NAME);
+
+	if (LBSubmitSoundName.empty())
+		LBSubmitSoundName = Path::Combine(EmuFolders::Resources, DEFAULT_LBSUBMIT_SOUND_NAME);
 
 	SettingsWrapBitBool(Enabled);
 	SettingsWrapBitBoolEx(HardcoreMode, "ChallengeMode");
@@ -1845,9 +1872,17 @@ void Pcsx2Config::AchievementsOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitBool(Notifications);
 	SettingsWrapBitBool(LeaderboardNotifications);
 	SettingsWrapBitBool(SoundEffects);
+	SettingsWrapBitBool(InfoSound);
+	SettingsWrapBitBool(UnlockSound);
+	SettingsWrapBitBool(LBSubmitSound);
 	SettingsWrapBitBool(Overlays);
 	SettingsWrapEntry(NotificationsDuration);
 	SettingsWrapEntry(LeaderboardsDuration);
+	SettingsWrapIntEnumEx(OverlayPosition, "OverlayPosition");
+	SettingsWrapIntEnumEx(NotificationPosition, "NotificationPosition");
+	SettingsWrapEntry(InfoSoundName);
+	SettingsWrapEntry(UnlockSoundName);
+	SettingsWrapEntry(LBSubmitSoundName);
 
 	if (wrap.IsLoading())
 	{
@@ -1859,7 +1894,8 @@ void Pcsx2Config::AchievementsOptions::LoadSave(SettingsWrapper& wrap)
 
 bool Pcsx2Config::AchievementsOptions::operator==(const AchievementsOptions& right) const
 {
-	return OpEqu(bitset) && OpEqu(NotificationsDuration) && OpEqu(LeaderboardsDuration);
+	return OpEqu(bitset) && OpEqu(NotificationsDuration) && OpEqu(LeaderboardsDuration) && 
+		   OpEqu(OverlayPosition) && OpEqu(NotificationPosition);
 }
 
 bool Pcsx2Config::AchievementsOptions::operator!=(const AchievementsOptions& right) const
@@ -1877,8 +1913,10 @@ Pcsx2Config::Pcsx2Config()
 	EnableRecordingTools = true;
 	EnableGameFixes = true;
 	InhibitScreensaver = true;
+	UseSavestateSelector = true;
 	BackupSavestate = true;
 	WarnAboutUnsafeSettings = true;
+	EnableDiscordPresence = false;
 	ManuallySetRealTimeClock = false;
 
 	// To be moved to FileMemoryCard pluign (someday)
@@ -1964,7 +2002,12 @@ void Pcsx2Config::LoadSaveCore(SettingsWrapper& wrap)
 
 	if (wrap.IsLoading())
 	{
+		// Patches will get re-applied after loading the state so this doesn't matter too much
 		CurrentAspectRatio = GS.AspectRatio;
+		if (CurrentAspectRatio == AspectRatioType::RAuto4_3_3_2)
+		{
+			CurrentCustomAspectRatio = 0.f;
+		}
 	}
 }
 
@@ -2016,6 +2059,7 @@ void Pcsx2Config::CopyRuntimeConfig(Pcsx2Config& cfg)
 	CurrentIRX = std::move(cfg.CurrentIRX);
 	CurrentGameArgs = std::move(cfg.CurrentGameArgs);
 	CurrentAspectRatio = cfg.CurrentAspectRatio;
+	CurrentCustomAspectRatio = cfg.CurrentCustomAspectRatio;
 	IsPortableMode = cfg.IsPortableMode;
 
 	for (u32 i = 0; i < sizeof(Mcd) / sizeof(Mcd[0]); i++)
@@ -2058,17 +2102,16 @@ void Pcsx2Config::ClearInvalidPerGameConfiguration(SettingsInterface* si)
 void EmuFolders::SetAppRoot()
 {
 	std::string program_path = FileSystem::GetProgramPath();
+	Console.WriteLnFmt("Program Path: {}", program_path);
+	AppRoot = Path::Canonicalize(Path::GetDirectory(program_path));
 #ifdef __APPLE__
 	const auto bundle_path = CocoaTools::GetNonTranslocatedBundlePath();
 	if (bundle_path.has_value())
 	{
 		// On macOS, override with the bundle path if launched from a bundle.
-		program_path = bundle_path.value();
+		AppRoot = StringUtil::EndsWithNoCase(*bundle_path, ".app") ? Path::GetDirectory(*bundle_path) : *bundle_path;
 	}
 #endif
-	Console.WriteLnFmt("Program Path: {}", program_path);
-
-	AppRoot = Path::Canonicalize(Path::GetDirectory(program_path));
 
 	// logging of directories in case something goes wrong super early
 	Console.WriteLnFmt("AppRoot Directory: {}", AppRoot);
@@ -2085,8 +2128,10 @@ bool EmuFolders::SetResourcesDirectory()
 #endif
 #else
 	// On macOS, this is in the bundle resources directory.
-	const std::string program_path = FileSystem::GetProgramPath();
-	Resources = Path::Canonicalize(Path::Combine(Path::GetDirectory(program_path), "../Resources"));
+	if (auto resources = CocoaTools::GetResourcePath())
+		Resources = *resources;
+	else
+		Resources = Path::Combine(AppRoot, "resources");
 #endif
 
 	Console.WriteLnFmt("Resources Directory: {}", Resources);

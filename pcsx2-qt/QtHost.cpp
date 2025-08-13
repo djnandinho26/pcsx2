@@ -320,18 +320,18 @@ void EmuThread::loadState(const QString& filename)
 	VMManager::LoadState(filename.toUtf8().constData());
 }
 
-void EmuThread::loadStateFromSlot(qint32 slot)
+void EmuThread::loadStateFromSlot(qint32 slot, bool load_backup)
 {
 	if (!isOnEmuThread())
 	{
-		QMetaObject::invokeMethod(this, "loadStateFromSlot", Qt::QueuedConnection, Q_ARG(qint32, slot));
+		QMetaObject::invokeMethod(this, "loadStateFromSlot", Qt::QueuedConnection, Q_ARG(qint32, slot), Q_ARG(bool, load_backup));
 		return;
 	}
 
 	if (!VMManager::HasValidVM())
 		return;
 
-	VMManager::LoadStateFromSlot(slot);
+	VMManager::LoadStateFromSlot(slot, load_backup);
 }
 
 void EmuThread::saveState(const QString& filename)
@@ -602,7 +602,7 @@ void Host::CheckForSettingsChanges(const Pcsx2Config& old_config)
 
 bool EmuThread::shouldRenderToMain() const
 {
-	return !Host::GetBoolSettingValue("UI", "RenderToSeparateWindow", false) && !QtHost::InNoGUIMode();
+	return !Host::GetBoolSettingValue("UI", "RenderToSeparateWindow", false) && !Host::InNoGUIMode();
 }
 
 void EmuThread::toggleSoftwareRendering()
@@ -1000,21 +1000,21 @@ void EmuThread::updatePerformanceMetrics(bool force)
 		if (THREAD_VU1)
 		{
 			gs_stat = tr("Slot: %1 | Volume: %2% | %3 | EE: %4% | VU: %5% | GS: %6%")
-						  .arg(SaveStateSelectorUI::GetCurrentSlot())
-						  .arg(SPU2::GetOutputVolume())
-						  .arg(gs_stat_str.c_str())
-						  .arg(PerformanceMetrics::GetCPUThreadUsage(), 0, 'f', 0)
-						  .arg(PerformanceMetrics::GetVUThreadUsage(), 0, 'f', 0)
-						  .arg(PerformanceMetrics::GetGSThreadUsage(), 0, 'f', 0);
+			              .arg(SaveStateSelectorUI::GetCurrentSlot())
+			              .arg(SPU2::GetOutputVolume())
+			              .arg(gs_stat_str.c_str())
+			              .arg(PerformanceMetrics::GetCPUThreadUsage(), 0, 'f', 0)
+			              .arg(PerformanceMetrics::GetVUThreadUsage(), 0, 'f', 0)
+			              .arg(PerformanceMetrics::GetGSThreadUsage(), 0, 'f', 0);
 		}
 		else
 		{
 			gs_stat = tr("Slot: %1 | Volume: %2% | %3 | EE: %4% | GS: %5%")
-						  .arg(SaveStateSelectorUI::GetCurrentSlot())
-						  .arg(SPU2::GetOutputVolume())
-						  .arg(gs_stat_str.c_str())
-						  .arg(PerformanceMetrics::GetCPUThreadUsage(), 0, 'f', 0)
-						  .arg(PerformanceMetrics::GetGSThreadUsage(), 0, 'f', 0);
+			              .arg(SaveStateSelectorUI::GetCurrentSlot())
+			              .arg(SPU2::GetOutputVolume())
+			              .arg(gs_stat_str.c_str())
+			              .arg(PerformanceMetrics::GetCPUThreadUsage(), 0, 'f', 0)
+			              .arg(PerformanceMetrics::GetGSThreadUsage(), 0, 'f', 0);
 		}
 
 		QMetaObject::invokeMethod(g_main_window->getStatusVerboseWidget(), "setText", Qt::QueuedConnection, Q_ARG(const QString&, gs_stat));
@@ -1054,8 +1054,14 @@ void EmuThread::updatePerformanceMetrics(bool force)
 
 		if (gfps != m_last_game_fps || force)
 		{
+			QString text;
+			if (gfps == 0)
+				text = tr("FPS: N/A");
+			else
+				text = tr("FPS: %1").arg(gfps, 0, 'f', 0);
+
 			QMetaObject::invokeMethod(g_main_window->getStatusFPSWidget(), "setText", Qt::QueuedConnection,
-				Q_ARG(const QString&, tr("FPS: %1").arg(gfps, 0, 'f', 0)));
+				Q_ARG(const QString&, text));
 			m_last_game_fps = gfps;
 		}
 
@@ -1123,9 +1129,9 @@ void Host::OnAchievementsRefreshed()
 		game_id = Achievements::GetGameID();
 
 		game_info = qApp
-						->translate("EmuThread", "Game: %1 (%2)\n")
-						.arg(QString::fromStdString(Achievements::GetGameTitle()))
-						.arg(game_id);
+		                ->translate("EmuThread", "Game: %1 (%2)\n")
+		                .arg(QString::fromStdString(Achievements::GetGameTitle()))
+		                .arg(game_id);
 
 		const std::string& rich_presence_string = Achievements::GetRichPresenceString();
 		if (!rich_presence_string.empty())
@@ -1175,7 +1181,7 @@ void Host::OpenHostFileSelectorAsync(std::string_view title, bool select_directo
 	if (!filters.empty())
 	{
 		filters_str.append(QStringLiteral("All File Types (%1)")
-							   .arg(QString::fromStdString(StringUtil::JoinString(filters.begin(), filters.end(), " "))));
+				.arg(QString::fromStdString(StringUtil::JoinString(filters.begin(), filters.end(), " "))));
 		for (const std::string& filter : filters)
 		{
 			filters_str.append(
@@ -1268,7 +1274,7 @@ void Host::RequestVMShutdown(bool allow_confirm, bool allow_save_state, bool def
 
 		// This will probably call shutdownVM() again, but by the time it runs, we'll have already shut down
 		// and it'll be a noop.
-		if (QtHost::InBatchMode())
+		if (Host::InBatchMode())
 			QMetaObject::invokeMethod(g_main_window, "requestExit", Qt::QueuedConnection, Q_ARG(bool, false));
 	}
 }
@@ -1437,12 +1443,12 @@ void Host::CommitBaseSettingChanges()
 	}
 }
 
-bool QtHost::InBatchMode()
+bool Host::InBatchMode()
 {
 	return s_batch_mode;
 }
 
-bool QtHost::InNoGUIMode()
+bool Host::InNoGUIMode()
 {
 	return s_nogui_mode;
 }
@@ -2327,14 +2333,34 @@ bool QtHost::RunSetupWizard()
 	return true;
 }
 
+class PCSX2MainApplication : public QApplication {
+public:
+	using QApplication::QApplication;
+
+	bool event(QEvent* event) override {
+		if (event->type() == QEvent::FileOpen)
+		{
+			QFileOpenEvent* open = static_cast<QFileOpenEvent*>(event);
+			const QUrl url = open->url();
+			if (url.isLocalFile())
+				return g_main_window->startFile(url.toLocalFile());
+			else
+				return false; // No URL schemas currently supported
+		}
+		return QApplication::event(event);
+	}
+};
+
 int main(int argc, char* argv[])
 {
 	CrashHandler::Install();
 
+	std::locale::global(std::locale(""));
+
 	QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 	QtHost::RegisterTypes();
 
-	QApplication app(argc, argv);
+	PCSX2MainApplication app(argc, argv);
 
 #ifndef _WIN32
 	if (!PerformEarlyHardwareChecks())
@@ -2393,8 +2419,8 @@ int main(int argc, char* argv[])
 		g_main_window->activateWindow();
 	}
 
-	// Initialize big picture mode if requested.
-	if (s_start_fullscreen_ui)
+	// Initialize big picture mode if requested by command line or settings.
+	if (s_start_fullscreen_ui || Host::GetBaseBoolSettingValue("UI", "StartBigPictureMode", false))
 		g_emu_thread->startFullscreenUI(s_start_fullscreen_ui_fullscreen);
 
 	if (s_boot_and_debug || DebuggerWindow::shouldShowOnStartup())

@@ -29,7 +29,9 @@ DXGI_FORMAT GSTexture11::GetDXGIFormat(Format format)
 	switch (format)
 	{
 	case GSTexture::Format::Color:        return DXGI_FORMAT_R8G8B8A8_UNORM;
-	case GSTexture::Format::HDRColor:     return DXGI_FORMAT_R16G16B16A16_UNORM;
+	case GSTexture::Format::ColorHQ:      return DXGI_FORMAT_R10G10B10A2_UNORM;
+	case GSTexture::Format::ColorHDR:     return DXGI_FORMAT_R16G16B16A16_FLOAT;
+	case GSTexture::Format::ColorClip:    return DXGI_FORMAT_R16G16B16A16_UNORM;
 	case GSTexture::Format::DepthStencil: return DXGI_FORMAT_R32G8X24_TYPELESS;
 	case GSTexture::Format::UNorm8:       return DXGI_FORMAT_A8_UNORM;
 	case GSTexture::Format::UInt16:       return DXGI_FORMAT_R16_UINT;
@@ -61,7 +63,7 @@ bool GSTexture11::Update(const GSVector4i& r, const void* data, int pitch, int l
 	g_perfmon.Put(GSPerfMon::TextureUploads, 1);
 
 	const u32 bs = GetCompressedBlockSize();
-	
+
 	const D3D11_BOX box = {Common::AlignDownPow2((u32)r.left, bs), Common::AlignDownPow2((u32)r.top, bs), 0U,
 		Common::AlignUpPow2((u32)r.right, bs), Common::AlignUpPow2((u32)r.bottom, bs), 1U};
 	const UINT subresource = layer; // MipSlice + (ArraySlice * MipLevels).

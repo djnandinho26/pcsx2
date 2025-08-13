@@ -33,9 +33,11 @@ struct BreakPoint
 	bool temporary = false;
 	bool stepping = false;
 
-	bool hasCond;
+	bool hasCond = false;
 	BreakPointCond cond;
 	BreakPointCpu cpu;
+
+	std::string description;
 
 	bool operator==(const BreakPoint& other) const
 	{
@@ -78,6 +80,8 @@ struct MemCheck
 	MemCheckResult result;
 	BreakPointCpu cpu;
 
+	std::string description;
+
 	u32 numHits;
 
 	u32 lastPC;
@@ -119,12 +123,14 @@ public:
 	static void ChangeBreakPointAddCond(BreakPointCpu cpu, u32 addr, const BreakPointCond& cond);
 	static void ChangeBreakPointRemoveCond(BreakPointCpu cpu, u32 addr);
 	static BreakPointCond* GetBreakPointCondition(BreakPointCpu cpu, u32 addr);
+	static void ChangeBreakPointDescription(BreakPointCpu cpu, u32 addr, const std::string& description);
 
 	static void AddMemCheck(BreakPointCpu cpu, u32 start, u32 end, MemCheckCondition cond, MemCheckResult result);
 	static void RemoveMemCheck(BreakPointCpu cpu, u32 start, u32 end);
 	static void ChangeMemCheck(BreakPointCpu cpu, u32 start, u32 end, MemCheckCondition cond, MemCheckResult result);
 	static void ChangeMemCheckRemoveCond(BreakPointCpu cpu, u32 start, u32 end);
 	static void ChangeMemCheckAddCond(BreakPointCpu cpu, u32 start, u32 end, const BreakPointCond& cond);
+	static void ChangeMemCheckDescription(BreakPointCpu cpu, u32 start, u32 end, const std::string& description);
 	static void ClearAllMemChecks();
 
 	static void SetSkipFirst(BreakPointCpu cpu, u32 pc);

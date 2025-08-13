@@ -160,20 +160,20 @@ void AudioSettingsWidget::onSyncModeChanged()
 {
 	const Pcsx2Config::SPU2Options::SPU2SyncMode sync_mode =
 		Pcsx2Config::SPU2Options::ParseSyncMode(
-			m_dialog
-				->getEffectiveStringValue("SPU2/Output", "SyncMode",
-					Pcsx2Config::SPU2Options::GetSyncModeName(Pcsx2Config::SPU2Options::DEFAULT_SYNC_MODE))
-				.c_str())
-			.value_or(Pcsx2Config::SPU2Options::DEFAULT_SYNC_MODE);
+			m_dialog->getEffectiveStringValue("SPU2/Output", "SyncMode",
+				Pcsx2Config::SPU2Options::GetSyncModeName(Pcsx2Config::SPU2Options::DEFAULT_SYNC_MODE)
+			).c_str()
+		).value_or(Pcsx2Config::SPU2Options::DEFAULT_SYNC_MODE);
 	m_ui.stretchSettings->setEnabled(sync_mode == Pcsx2Config::SPU2Options::SPU2SyncMode::TimeStretch);
 }
 
 AudioBackend AudioSettingsWidget::getEffectiveBackend() const
 {
-	return AudioStream::ParseBackendName(m_dialog->getEffectiveStringValue("SPU2/Output", "Backend",
-													 AudioStream::GetBackendName(Pcsx2Config::SPU2Options::DEFAULT_BACKEND))
-											 .c_str())
-		.value_or(Pcsx2Config::SPU2Options::DEFAULT_BACKEND);
+	return AudioStream::ParseBackendName(
+		m_dialog->getEffectiveStringValue("SPU2/Output", "Backend",
+			AudioStream::GetBackendName(Pcsx2Config::SPU2Options::DEFAULT_BACKEND)
+		).c_str()
+	).value_or(Pcsx2Config::SPU2Options::DEFAULT_BACKEND);
 }
 
 void AudioSettingsWidget::updateDriverNames()
@@ -263,17 +263,17 @@ void AudioSettingsWidget::updateLatencyLabel()
 		if (expand_buffer_ms > 0)
 		{
 			m_ui.bufferingLabel->setText(tr("Maximum Latency: %1 ms (%2 ms buffer + %3 ms expand + %4 ms output)")
-											 .arg(config_buffer_ms + expand_buffer_ms + output_latency_ms)
-											 .arg(config_buffer_ms)
-											 .arg(expand_buffer_ms)
-											 .arg(output_latency_ms));
+					.arg(config_buffer_ms + expand_buffer_ms + output_latency_ms)
+					.arg(config_buffer_ms)
+					.arg(expand_buffer_ms)
+					.arg(output_latency_ms));
 		}
 		else
 		{
 			m_ui.bufferingLabel->setText(tr("Maximum Latency: %1 ms (%2 ms buffer + %3 ms output)")
-											 .arg(config_buffer_ms + output_latency_ms)
-											 .arg(config_buffer_ms)
-											 .arg(output_latency_ms));
+					.arg(config_buffer_ms + output_latency_ms)
+					.arg(config_buffer_ms)
+					.arg(output_latency_ms));
 		}
 	}
 	else
@@ -281,8 +281,8 @@ void AudioSettingsWidget::updateLatencyLabel()
 		if (expand_buffer_ms > 0)
 		{
 			m_ui.bufferingLabel->setText(tr("Maximum Latency: %1 ms (%2 ms expand, minimum output latency unknown)")
-											 .arg(expand_buffer_ms + config_buffer_ms)
-											 .arg(expand_buffer_ms));
+					.arg(expand_buffer_ms + config_buffer_ms)
+					.arg(expand_buffer_ms));
 		}
 		else
 		{
@@ -310,7 +310,7 @@ void AudioSettingsWidget::onOutputVolumeChanged(int new_value)
 	pxAssert(!m_dialog->isPerGameSettings());
 	Host::SetBaseIntSettingValue("SPU2/Output", "OutputVolume", new_value);
 	Host::CommitBaseSettingChanges();
-	g_emu_thread->setAudioOutputVolume(new_value, m_ui.fastForwardVolume->value());
+	g_emu_thread->applySettings();
 
 	updateVolumeLabel();
 }
@@ -321,7 +321,7 @@ void AudioSettingsWidget::onFastForwardVolumeChanged(int new_value)
 	pxAssert(!m_dialog->isPerGameSettings());
 	Host::SetBaseIntSettingValue("SPU2/Output", "FastForwardVolume", new_value);
 	Host::CommitBaseSettingChanges();
-	g_emu_thread->setAudioOutputVolume(m_ui.volume->value(), new_value);
+	g_emu_thread->applySettings();
 
 	updateVolumeLabel();
 }
@@ -334,7 +334,7 @@ void AudioSettingsWidget::onOutputMutedChanged(int new_state)
 	const bool muted = (new_state != 0);
 	Host::SetBaseBoolSettingValue("SPU2/Output", "OutputMuted", muted);
 	Host::CommitBaseSettingChanges();
-	g_emu_thread->setAudioOutputMuted(muted);
+	g_emu_thread->applySettings();
 }
 
 void AudioSettingsWidget::onExpansionSettingsClicked()
@@ -342,7 +342,7 @@ void AudioSettingsWidget::onExpansionSettingsClicked()
 	QDialog dlg(QtUtils::GetRootWidget(this));
 	Ui::AudioExpansionSettingsDialog dlgui;
 	dlgui.setupUi(&dlg);
-	dlgui.icon->setPixmap(QIcon::fromTheme(QStringLiteral("volume-up-line")).pixmap(32, 32));
+	QtUtils::SetScalableIcon(dlgui.icon, QIcon::fromTheme(QStringLiteral("volume-up-line")), QSize(32, 32));
 
 	SettingsInterface* sif = m_dialog->getSettingsInterface();
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, dlgui.blockSize, "SPU2/Output", "ExpandBlockSize",
@@ -431,7 +431,7 @@ void AudioSettingsWidget::onStretchSettingsClicked()
 	QDialog dlg(QtUtils::GetRootWidget(this));
 	Ui::AudioStretchSettingsDialog dlgui;
 	dlgui.setupUi(&dlg);
-	dlgui.icon->setPixmap(QIcon::fromTheme(QStringLiteral("volume-up-line")).pixmap(32, 32));
+	QtUtils::SetScalableIcon(dlgui.icon, QIcon::fromTheme(QStringLiteral("volume-up-line")), QSize(32, 32));
 
 	SettingsInterface* sif = m_dialog->getSettingsInterface();
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, dlgui.sequenceLength, "SPU2/Output", "StretchSequenceLengthMS",

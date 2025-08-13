@@ -50,6 +50,32 @@ u64 GetPhysicalMemory()
 	return getmem;
 }
 
+u64 GetAvailablePhysicalMemory()
+{
+	const mach_port_t host_port = mach_host_self();
+	vm_size_t page_size;
+
+	// Get the system's page size.
+	if (host_page_size(host_port, &page_size) != KERN_SUCCESS)
+		return 0;
+
+	vm_statistics64_data_t vm_stat;
+	mach_msg_type_number_t host_size = sizeof(vm_statistics64_data_t) / sizeof(integer_t);
+
+	// Get system memory statistics.
+	if (host_statistics64(host_port, HOST_VM_INFO, reinterpret_cast<host_info64_t>(&vm_stat), &host_size) != KERN_SUCCESS)
+		return 0;
+
+	// Get the number of free and inactive pages.
+	const u64 free_pages = static_cast<u64>(vm_stat.free_count);
+	const u64 inactive_pages = static_cast<u64>(vm_stat.inactive_count);
+
+	// Calculate available memory.
+	const u64 get_available_mem = (free_pages + inactive_pages) * page_size;
+
+	return get_available_mem;
+}
+
 static mach_timebase_info_data_t s_timebase_info;
 static const u64 tickfreq = []() {
 	if (mach_timebase_info(&s_timebase_info) != KERN_SUCCESS)
@@ -245,7 +271,7 @@ std::vector<DarwinMisc::CPUClass> DarwinMisc::GetCPUClasses()
 	}
 	else if (std::optional<u32> physcpu = sysctlbyname_T<u32>("hw.physicalcpu"))
 	{
-		out.push_back({"Default", *physcpu, sysctlbyname_T<u32>("hw.logicalcpu").value_or(0)});
+		out.push_back({"Default", *physcpu, sysctlbyname_T<u32>("hw.logicalcpu").value_or(*physcpu)});
 	}
 	else
 	{
@@ -253,6 +279,35 @@ std::vector<DarwinMisc::CPUClass> DarwinMisc::GetCPUClasses()
 	}
 
 	return out;
+}
+
+static CPUInfo CalcCPUInfo()
+{
+	CPUInfo out;
+	char name[256];
+	size_t name_size = sizeof(name);
+	if (0 != sysctlbyname("machdep.cpu.brand_string", name, &name_size, nullptr, 0))
+		strcpy(name, "Unknown");
+	out.name = name;
+	if (sysctlbyname_T<u32>("sysctl.proc_translated").value_or(0))
+		out.name += " (Rosetta)";
+	std::vector<DarwinMisc::CPUClass> classes = DarwinMisc::GetCPUClasses();
+	out.num_clusters = static_cast<u32>(classes.size());
+	out.num_big_cores = classes.empty() ? 0 : classes[0].num_physical;
+	out.num_threads   = classes.empty() ? 0 : classes[0].num_logical;
+	out.num_small_cores = 0;
+	for (std::size_t i = 1; i < classes.size(); i++)
+	{
+		out.num_small_cores += classes[i].num_physical;
+		out.num_threads += classes[i].num_logical;
+	}
+	return out;
+}
+
+const CPUInfo& GetCPUInfo()
+{
+	static const CPUInfo info = CalcCPUInfo();
+	return info;
 }
 
 size_t HostSys::GetRuntimePageSize()
@@ -411,7 +466,7 @@ std::unique_ptr<SharedMemoryMappingArea> SharedMemoryMappingArea::Create(size_t 
 {
 	pxAssertRel(Common::IsAlignedPow2(size, __pagesize), "Size is page aligned");
 
-	mach_vm_address_t alloc;
+	mach_vm_address_t alloc = 0;
 	const kern_return_t res =
 		mach_vm_map(mach_task_self(), &alloc, size, 0, VM_FLAGS_ANYWHERE,
 			MEMORY_OBJECT_NULL, 0, false, VM_PROT_NONE, VM_PROT_NONE, VM_INHERIT_NONE);

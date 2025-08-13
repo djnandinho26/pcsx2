@@ -70,6 +70,7 @@ GSLocalMemory::GSLocalMemory()
 		psm.wfa = &GSLocalMemory::WritePixel32;
 		psm.bpp = psm.trbpp = 32;
 		psm.pal = 0;
+		psm.cs = GSVector2i(8, 2);
 		psm.bs = GSVector2i(8, 8);
 		psm.pgs = GSVector2i(64, 32);
 		psm.msk = 0xff;
@@ -197,6 +198,11 @@ GSLocalMemory::GSLocalMemory()
 	m_psm[PSMCT16].fmt = m_psm[PSMZ16].fmt = PSM_FMT_16;
 	m_psm[PSMCT16S].fmt = m_psm[PSMZ16S].fmt = PSM_FMT_16;
 
+	m_psm[PSGPU24].cs = GSVector2i(16, 2);
+	m_psm[PSMCT16].cs = m_psm[PSMCT16S].bs = GSVector2i(16, 2);
+	m_psm[PSMT8].cs = GSVector2i(16, 4);
+	m_psm[PSMT4].cs = GSVector2i(32, 4);
+	m_psm[PSMZ16].cs = m_psm[PSMZ16S].bs = GSVector2i(16, 2);
 
 	m_psm[PSGPU24].bs = GSVector2i(16, 8);
 	m_psm[PSMCT16].bs = m_psm[PSMCT16S].bs = GSVector2i(16, 8);
@@ -387,7 +393,7 @@ std::vector<GSVector2i>* GSLocalMemory::GetPage2TileMap(const GIFRegTEX0& TEX0)
 	{
 		for (; bn.blkX() < (tw >> off.blockShiftX()); bn.nextBlockX())
 		{
-			u32 page = (bn.value() >> 5) % MAX_PAGES;
+			u32 page = (bn.value() >> 5) % GS_MAX_PAGES;
 
 			tmp[page].insert((bn.blkY() << 7) + bn.blkX());
 		}
@@ -395,7 +401,7 @@ std::vector<GSVector2i>* GSLocalMemory::GetPage2TileMap(const GIFRegTEX0& TEX0)
 
 	// combine the lower 5 bits of the address into a 9:5 pointer:mask form, so the "valid bits" can be tested against an u32 array
 
-	auto p2t = new std::vector<GSVector2i>[MAX_PAGES];
+	auto p2t = new std::vector<GSVector2i>[GS_MAX_PAGES];
 
 	for (const auto& i : tmp)
 	{
@@ -440,6 +446,13 @@ std::vector<GSVector2i>* GSLocalMemory::GetPage2TileMap(const GIFRegTEX0& TEX0)
 	return p2t;
 }
 
+u32 GSLocalMemory::IsPageAlignedMasked(u32 psm, const GSVector4i& rc)
+{
+	const psm_t& psm_s = m_psm[psm];
+	const GSVector4i pgmsk = GSVector4i(psm_s.pgs).xyxy() - GSVector4i(1);
+	return ((rc & pgmsk) == GSVector4i::zero()).mask();
+}
+
 bool GSLocalMemory::IsPageAligned(u32 psm, const GSVector4i& rc)
 {
 	const psm_t& psm_s = m_psm[psm];
@@ -482,12 +495,12 @@ u32 GSLocalMemory::GetEndBlockAddress(u32 bp, u32 bw, u32 psm, GSVector4i rect)
 u32 GSLocalMemory::GetUnwrappedEndBlockAddress(u32 bp, u32 bw, u32 psm, GSVector4i rect)
 {
 	const u32 result = GetEndBlockAddress(bp, bw, psm, rect);
-	return (result < bp) ? (result + MAX_BLOCKS) : result;
+	return (result < bp) ? (result + GS_MAX_BLOCKS) : result;
 }
 
 GSVector4i GSLocalMemory::GetRectForPageOffset(u32 base_bp, u32 offset_bp, u32 bw, u32 psm)
 {
-	pxAssert((base_bp % BLOCKS_PER_PAGE) == 0 && (offset_bp % BLOCKS_PER_PAGE) == 0);
+	pxAssert((base_bp % GS_BLOCKS_PER_PAGE) == 0 && (offset_bp % GS_BLOCKS_PER_PAGE) == 0);
 
 	const u32 page_offset = (offset_bp - base_bp) >> 5;
 	const GSVector2i& pgs = m_psm[psm].pgs;
@@ -496,23 +509,23 @@ GSVector4i GSLocalMemory::GetRectForPageOffset(u32 base_bp, u32 offset_bp, u32 b
 	return GSVector4i(pgs * page_offset_xy).xyxy() + GSVector4i::loadh(pgs);
 }
 
-bool GSLocalMemory::HasOverlap(const u32 src_bp, const u32 src_bw, const u32 src_psm, const GSVector4i src_rect
-							, const u32 dst_bp, const u32 dst_bw, const u32 dst_psm, const GSVector4i dst_rect)
+bool GSLocalMemory::HasOverlap(const u32 src_bp, const u32 src_bw, const u32 src_psm, const GSVector4i src_rect,
+                               const u32 dst_bp, const u32 dst_bw, const u32 dst_psm, const GSVector4i dst_rect)
 {
-	const u32 src_start_bp = GSLocalMemory::GetStartBlockAddress(src_bp, src_bw, src_psm, src_rect) & ~(BLOCKS_PER_PAGE - 1);
-	const u32 dst_start_bp = GSLocalMemory::GetStartBlockAddress(dst_bp, dst_bw, dst_psm, dst_rect) & ~(BLOCKS_PER_PAGE - 1);
+	const u32 src_start_bp = GSLocalMemory::GetStartBlockAddress(src_bp, src_bw, src_psm, src_rect) & ~(GS_BLOCKS_PER_PAGE - 1);
+	const u32 dst_start_bp = GSLocalMemory::GetStartBlockAddress(dst_bp, dst_bw, dst_psm, dst_rect) & ~(GS_BLOCKS_PER_PAGE - 1);
 
-	u32 src_end_bp = ((GSLocalMemory::GetEndBlockAddress(src_bp, src_bw, src_psm, src_rect) + 1) + (BLOCKS_PER_PAGE - 1)) & ~(BLOCKS_PER_PAGE - 1);
-	u32 dst_end_bp = ((GSLocalMemory::GetEndBlockAddress(dst_bp, dst_bw, dst_psm, dst_rect) + 1) + (BLOCKS_PER_PAGE - 1)) & ~(BLOCKS_PER_PAGE - 1);
-	
+	u32 src_end_bp = ((GSLocalMemory::GetEndBlockAddress(src_bp, src_bw, src_psm, src_rect) + 1) + (GS_BLOCKS_PER_PAGE - 1)) & ~(GS_BLOCKS_PER_PAGE - 1);
+	u32 dst_end_bp = ((GSLocalMemory::GetEndBlockAddress(dst_bp, dst_bw, dst_psm, dst_rect) + 1) + (GS_BLOCKS_PER_PAGE - 1)) & ~(GS_BLOCKS_PER_PAGE - 1);
+
 	if (src_start_bp == src_end_bp)
 	{
-		src_end_bp = (src_end_bp + BLOCKS_PER_PAGE) & ~(MAX_BLOCKS - 1);
+		src_end_bp = (src_end_bp + GS_BLOCKS_PER_PAGE) & ~(GS_MAX_BLOCKS - 1);
 	}
 
 	if (dst_start_bp == dst_end_bp)
 	{
-		dst_end_bp = (dst_end_bp + BLOCKS_PER_PAGE) & ~(MAX_BLOCKS - 1);
+		dst_end_bp = (dst_end_bp + GS_BLOCKS_PER_PAGE) & ~(GS_MAX_BLOCKS - 1);
 	}
 
 	// Source has wrapped, 2 separate checks.
@@ -740,7 +753,7 @@ GSOffset::PageLooper GSOffset::pageLooperForRect(const GSVector4i& rect) const
 	out.yCnt = botPg - topPg;
 	out.firstRowPgXStart = out.midRowPgXStart = out.lastRowPgXStart = rect.left >> m_pageShiftX;
 	out.firstRowPgXEnd = out.midRowPgXEnd = out.lastRowPgXEnd = ((rect.right + m_pageMask.x) >> m_pageShiftX) + !aligned;
-	out.slowPath = static_cast<u32>(out.yCnt * out.yInc + out.midRowPgXEnd - out.midRowPgXStart) > MAX_PAGES;
+	out.slowPath = static_cast<u32>(out.yCnt * out.yInc + out.midRowPgXEnd - out.midRowPgXStart) > GS_MAX_PAGES;
 
 	// Page-aligned bp is easy, all tiles touch their lower page but not the upper
 	if (aligned)

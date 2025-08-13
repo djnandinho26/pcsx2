@@ -11,14 +11,14 @@
 
 class MD5Digest;
 
-class DebuggerWidget;
-struct DebuggerWidgetParameters;
+class DebuggerView;
+struct DebuggerViewParameters;
 
 namespace DockTables
 {
-	struct DebuggerWidgetDescription
+	struct DebuggerViewDescription
 	{
-		DebuggerWidget* (*create_widget)(const DebuggerWidgetParameters& parameters);
+		DebuggerView* (*create_widget)(const DebuggerViewParameters& parameters);
 
 		// The untranslated string displayed as the dock widget tab text.
 		const char* display_name;
@@ -28,20 +28,25 @@ namespace DockTables
 		DockUtils::PreferredLocation preferred_location;
 	};
 
-	extern const std::map<std::string, DebuggerWidgetDescription> DEBUGGER_WIDGETS;
+	extern const std::map<std::string, DebuggerViewDescription> DEBUGGER_VIEWS;
 
-	enum class DefaultDockGroup
+	using DockGroup = s32;
+
+	namespace DefaultDockGroup
 	{
-		ROOT = -1,
-		TOP_RIGHT = 0,
-		BOTTOM = 1,
-		TOP_LEFT = 2
-	};
+		enum
+		{
+			ROOT = -1,
+			TOP_RIGHT = 0,
+			BOTTOM = 1,
+			TOP_LEFT = 2
+		};
+	}
 
 	struct DefaultDockGroupDescription
 	{
 		KDDockWidgets::Location location;
-		DefaultDockGroup parent;
+		DockGroup parent;
 	};
 
 	extern const std::vector<DefaultDockGroupDescription> DEFAULT_DOCK_GROUPS;
@@ -49,7 +54,7 @@ namespace DockTables
 	struct DefaultDockWidgetDescription
 	{
 		std::string type;
-		DefaultDockGroup group;
+		DockGroup group;
 	};
 
 	struct DefaultDockLayout
@@ -67,9 +72,5 @@ namespace DockTables
 
 	// This is used to determine if the user has updated and we need to recreate
 	// the default layouts.
-	const std::string& hashDefaultLayouts();
-
-	void hashDefaultLayout(const DefaultDockLayout& layout, MD5Digest& md5);
-	void hashDefaultGroup(const DefaultDockGroupDescription& group, MD5Digest& md5);
-	void hashDefaultDockWidget(const DefaultDockWidgetDescription& widget, MD5Digest& md5);
+	u32 hashDefaultLayouts();
 } // namespace DockTables

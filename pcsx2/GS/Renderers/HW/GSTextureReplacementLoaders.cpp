@@ -380,10 +380,8 @@ constexpr DDS_PIXELFORMAT DDSPF_R8G8B8 = {
 
 static bool DDSPixelFormatMatches(const DDS_PIXELFORMAT& pf1, const DDS_PIXELFORMAT& pf2)
 {
-	return std::tie(pf1.dwSize, pf1.dwFlags, pf1.dwFourCC, pf1.dwRGBBitCount, pf1.dwRBitMask,
-			   pf1.dwGBitMask, pf1.dwGBitMask, pf1.dwBBitMask, pf1.dwABitMask) ==
-		   std::tie(pf2.dwSize, pf2.dwFlags, pf2.dwFourCC, pf2.dwRGBBitCount, pf2.dwRBitMask,
-			   pf2.dwGBitMask, pf2.dwGBitMask, pf2.dwBBitMask, pf2.dwABitMask);
+	return std::tie(pf1.dwSize, pf1.dwFlags, pf1.dwFourCC, pf1.dwRGBBitCount, pf1.dwRBitMask, pf1.dwGBitMask, pf1.dwGBitMask, pf1.dwBBitMask, pf1.dwABitMask) ==
+	       std::tie(pf2.dwSize, pf2.dwFlags, pf2.dwFourCC, pf2.dwRGBBitCount, pf2.dwRBitMask, pf2.dwGBitMask, pf2.dwGBitMask, pf2.dwBBitMask, pf2.dwABitMask);
 }
 
 struct DDSLoadInfo
@@ -465,7 +463,7 @@ static bool ParseDDSHeader(std::FILE* fp, DDSLoadInfo* info)
 		}
 
 		const GSDevice::FeatureSupport features(g_gs_device->Features());
-		if (header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '1') || dxt10_format == 71)
+		if (header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '1') || dxt10_format == 71 /*DXGI_FORMAT_BC1_UNORM*/)
 		{
 			info->format = GSTexture::Format::BC1;
 			info->block_size = 4;
@@ -473,7 +471,7 @@ static bool ParseDDSHeader(std::FILE* fp, DDSLoadInfo* info)
 			if (!features.dxt_textures)
 				return false;
 		}
-		else if (header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '2') || header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '3') || dxt10_format == 74)
+		else if (header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '2') || header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '3') || dxt10_format == 74 /*DXGI_FORMAT_BC2_UNORM*/)
 		{
 			info->format = GSTexture::Format::BC2;
 			info->block_size = 4;
@@ -481,7 +479,7 @@ static bool ParseDDSHeader(std::FILE* fp, DDSLoadInfo* info)
 			if (!features.dxt_textures)
 				return false;
 		}
-		else if (header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '4') || header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '5') || dxt10_format == 77)
+		else if (header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '4') || header.ddspf.dwFourCC == MAKEFOURCC('D', 'X', 'T', '5') || dxt10_format == 77 /*DXGI_FORMAT_BC3_UNORM*/)
 		{
 			info->format = GSTexture::Format::BC3;
 			info->block_size = 4;
@@ -489,7 +487,7 @@ static bool ParseDDSHeader(std::FILE* fp, DDSLoadInfo* info)
 			if (!features.dxt_textures)
 				return false;
 		}
-		else if (dxt10_format == 98)
+		else if (dxt10_format == 98 /*DXGI_FORMAT_BC7_UNORM*/)
 		{
 			info->format = GSTexture::Format::BC7;
 			info->block_size = 4;

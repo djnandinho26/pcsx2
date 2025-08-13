@@ -10,7 +10,7 @@
 #include "SPU2/spu2.h"
 #include "Host.h"
 #include "Host/AudioStream.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome6.h"
 #include "common/Assertions.h"
 #include "common/Console.h"
 #include "common/BitUtils.h"
@@ -1384,12 +1384,12 @@ TinyString GSCapture::GetElapsedTime()
 	if (s_video_stream)
 	{
 		seconds = (s_next_video_pts * static_cast<s64>(s_video_codec_context->time_base.num)) /
-				  static_cast<s64>(s_video_codec_context->time_base.den);
+		          static_cast<s64>(s_video_codec_context->time_base.den);
 	}
 	else if (s_audio_stream)
 	{
 		seconds = (s_next_audio_pts * static_cast<s64>(s_audio_codec_context->time_base.num)) /
-				  static_cast<s64>(s_audio_codec_context->time_base.den);
+		          static_cast<s64>(s_audio_codec_context->time_base.den);
 	}
 	else
 	{
