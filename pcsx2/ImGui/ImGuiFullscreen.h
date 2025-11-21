@@ -165,6 +165,8 @@ namespace ImGuiFullscreen
 	void CreateFooterTextString(SmallStringBase& dest, std::span<const std::pair<const char*, std::string_view>> items);
 	void SetFullscreenFooterText(std::string_view text);
 	void SetFullscreenFooterText(std::span<const std::pair<const char*, std::string_view>> items);
+	void AppendToFullscreenFooterText(std::span<const std::pair<const char*, std::string_view>> items);
+	void QueueFooterHint(std::span<const std::pair<const char*, std::string_view>> items);
 	void DrawFullscreenFooter();
 
 	void PrerenderMenuButtonBorder();
@@ -255,19 +257,27 @@ namespace ImGuiFullscreen
 
 	using InputStringDialogCallback = std::function<void(std::string text)>;
 	bool IsInputDialogOpen();
+	enum class InputFilterType : u8
+	{
+		None,
+		Numeric,
+		IPAddress
+	};
+
 	void OpenInputStringDialog(
-		std::string title, std::string message, std::string caption, std::string ok_button_text, InputStringDialogCallback callback);
+		std::string title, std::string message, std::string caption, std::string ok_button_text, InputStringDialogCallback callback,
+		std::string default_value = std::string(), InputFilterType filter_type = InputFilterType::None);
 	void CloseInputDialog();
 
 	using ConfirmMessageDialogCallback = std::function<void(bool)>;
 	using InfoMessageDialogCallback = std::function<void()>;
 	using MessageDialogCallback = std::function<void(s32)>;
 	bool IsMessageBoxDialogOpen();
-	void OpenConfirmMessageDialog(std::string title, std::string message, ConfirmMessageDialogCallback callback,
+	void OpenConfirmMessageDialog(std::string title, std::string message, ConfirmMessageDialogCallback callback, bool default_yes = true,
 		std::string yes_button_text = ICON_FA_CHECK " Yes", std::string no_button_text = ICON_FA_XMARK " No");
 	void OpenInfoMessageDialog(std::string title, std::string message, InfoMessageDialogCallback callback = {},
 		std::string button_text = ICON_FA_SQUARE_XMARK " Close");
-	void OpenMessageDialog(std::string title, std::string message, MessageDialogCallback callback, std::string first_button_text,
+	void OpenMessageDialog(std::string title, std::string message, MessageDialogCallback callback, s32 default_index, std::string first_button_text,
 		std::string second_button_text, std::string third_button_text);
 	void CloseMessageDialog();
 
@@ -276,9 +286,9 @@ namespace ImGuiFullscreen
 	void SetNotificationVerticalPosition(float position, float direction);
 	void SetNotificationPosition(float horizontal_position, float vertical_position, float direction);
 
-	void OpenBackgroundProgressDialog(const char* str_id, std::string message, s32 min, s32 max, s32 value);
-	void UpdateBackgroundProgressDialog(const char* str_id, std::string message, s32 min, s32 max, s32 value);
-	void CloseBackgroundProgressDialog(const char* str_id);
+	void OpenProgressDialog(const char* str_id, std::string message, s32 min, s32 max, s32 value);
+	void UpdateProgressDialog(const char* str_id, std::string message, s32 min, s32 max, s32 value);
+	void CloseProgressDialog(const char* str_id);
 
 	void AddNotification(std::string key, float duration, std::string title, std::string text, std::string image_path);
 	void ClearNotifications();

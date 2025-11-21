@@ -234,12 +234,12 @@ std::unique_lock<std::recursive_mutex> Achievements::GetLock()
 void Achievements::BeginLoadingScreen(const char* text, bool* was_running_idle)
 {
 	MTGS::RunOnGSThread(&ImGuiManager::InitializeFullscreenUI);
-	ImGuiFullscreen::OpenBackgroundProgressDialog("achievements_loading", text, 0, 0, 0);
+	ImGuiFullscreen::OpenProgressDialog("achievements_loading", text, 0, 0, 0);
 }
 
 void Achievements::EndLoadingScreen(bool was_running_idle)
 {
-	ImGuiFullscreen::CloseBackgroundProgressDialog("achievements_loading");
+	ImGuiFullscreen::CloseProgressDialog("achievements_loading");
 }
 
 void Achievements::ReportError(const std::string_view sv)
@@ -483,6 +483,13 @@ bool Achievements::CreateClient(rc_client_t** client, std::unique_ptr<HTTPDownlo
 #endif
 
 	rc_client_set_userdata(new_client, http->get());
+
+	const std::string custom_host = Host::GetBaseStringSettingValue("Achievements", "Host", "");
+	if (!custom_host.empty())
+	{
+		Console.WriteLn("Achievements: Using custom host %s", custom_host.c_str());
+		rc_client_set_host(new_client, custom_host.c_str());
+	}
 
 	*client = new_client;
 	return true;
@@ -1028,7 +1035,7 @@ void Achievements::ClientLoadGameCallback(int result, const char* error_message,
 
 	if (const std::string_view badge_name = info->badge_name; !badge_name.empty())
 	{
-		s_game_icon = Path::Combine(s_image_directory, fmt::format("game_{}.png", info->id));
+		s_game_icon = Path::Combine(s_image_directory, fmt::format("game_{}.png", badge_name));
 		if (!s_game_icon.empty() && !s_game_icon_url.empty() && !FileSystem::FileExists(s_game_icon.c_str()))
 			DownloadImage(s_game_icon_url, s_game_icon);
 	}
@@ -1633,16 +1640,16 @@ void Achievements::SaveState(SaveStateBase& writer)
 
 std::string Achievements::GetAchievementBadgePath(const rc_client_achievement_t* achievement, int state)
 {
-	static constexpr std::array<const char*, NUM_RC_CLIENT_ACHIEVEMENT_STATES> s_achievement_state_strings = {
-		{"inactive", "active", "unlocked", "disabled"}};
-
 	std::string path;
 
-	if (achievement->badge_name[0] == 0)
+	const std::string_view badge_name(achievement->badge_name);
+	if (badge_name.empty())
 		return path;
 
+	const std::string_view suffix = state == RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED ? "" : "_lock";
+
 	path = Path::Combine(s_image_directory,
-		TinyString::from_format("achievement_{}_{}_{}.png", s_game_id, achievement->id, s_achievement_state_strings[state]));
+		TinyString::from_format("achievement_{}{}.png", badge_name, suffix));
 
 	if (!FileSystem::FileExists(path.c_str()))
 	{
@@ -1943,7 +1950,7 @@ void Achievements::ConfirmHardcoreModeDisableAsync(const char* trigger, std::fun
 			fmt::format(TRANSLATE_FS("Achievements", "{0} cannot be performed while hardcore mode is active. Do you "
 													 "want to disable hardcore mode? {0} will be cancelled if you select No."),
 				trigger),
-			std::move(real_callback), fmt::format(ICON_FA_CHECK " {}", TRANSLATE_SV("Achievements", "Yes")),
+			std::move(real_callback), true, fmt::format(ICON_FA_CHECK " {}", TRANSLATE_SV("Achievements", "Yes")),
 			fmt::format(ICON_FA_XMARK " {}", TRANSLATE_SV("Achievements", "No")));
 	});
 }
@@ -2095,7 +2102,7 @@ void Achievements::DrawGameOverlays()
 	using ImGuiFullscreen::g_medium_font;
 	using ImGuiFullscreen::LayoutScale;
 
-	if (!HasActiveGame() || !EmuConfig.Achievements.Overlays)
+	if (!HasActiveGame() || !(EmuConfig.Achievements.Overlays || EmuConfig.Achievements.LBOverlays))
 		return;
 
 	const auto lock = GetLock();
@@ -2107,7 +2114,7 @@ void Achievements::DrawGameOverlays()
 	ImVec2 position = CalculateOverlayPosition(io, padding, EmuConfig.Achievements.OverlayPosition);
 	ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
-	if (!s_active_challenge_indicators.empty())
+	if (!s_active_challenge_indicators.empty() && EmuConfig.Achievements.Overlays)
 	{
 		const ImVec2 stack_direction = GetStackingDirection(EmuConfig.Achievements.OverlayPosition);
 		ImVec2 current_position = AdjustPositionForAlignment(position, image_size, EmuConfig.Achievements.OverlayPosition);
@@ -2162,7 +2169,7 @@ void Achievements::DrawGameOverlays()
 		position.y += stack_direction.y * (image_size.y + padding);
 	}
 
-	if (s_active_progress_indicator.has_value())
+	if (s_active_progress_indicator.has_value() && EmuConfig.Achievements.Overlays)
 	{
 		const AchievementProgressIndicator& indicator = s_active_progress_indicator.value();
 		const float opacity = IndicatorOpacity(indicator);
@@ -2206,7 +2213,7 @@ void Achievements::DrawGameOverlays()
 		position.y += stack_direction.y * (progress_box_size.y + padding);
 	}
 
-	if (!s_active_leaderboard_trackers.empty())
+	if (!s_active_leaderboard_trackers.empty() && EmuConfig.Achievements.LBOverlays)
 	{
 		const ImVec2 stack_direction = GetStackingDirection(EmuConfig.Achievements.OverlayPosition);
 		
@@ -2848,8 +2855,14 @@ void Achievements::DrawLeaderboardsWindow()
 				const float tab_width = (ImGui::GetWindowWidth() / ImGuiFullscreen::g_layout_scale) * 0.5f;
 				ImGui::SetCursorPos(ImVec2(0.0f, top + spacing_small));
 
-				if (ImGui::IsKeyPressed(ImGuiKey_NavGamepadTweakSlow, false) || ImGui::IsKeyPressed(ImGuiKey_NavGamepadTweakFast, false))
+				if (ImGui::IsKeyPressed(ImGuiKey_NavGamepadTweakSlow, false) || ImGui::IsKeyPressed(ImGuiKey_NavGamepadTweakFast, false) ||
+					ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
+					ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) || ImGui::IsKeyPressed(ImGuiKey_RightArrow, false))
+				{
 					s_is_showing_all_leaderboard_entries = !s_is_showing_all_leaderboard_entries;
+				}
+
+				ImGuiFullscreen::BeginNavBar();
 
 				for (const bool show_all : {false, true})
 				{
@@ -2860,6 +2873,8 @@ void Achievements::DrawLeaderboardsWindow()
 						s_is_showing_all_leaderboard_entries = show_all;
 					}
 				}
+
+				ImGuiFullscreen::EndNavBar();
 
 				const ImVec2 bg_pos = ImVec2(0.0f, ImGui::GetCurrentWindow()->DC.CursorPos.y + LayoutScale(tab_height_unscaled));
 				const ImVec2 bg_size =
@@ -2914,7 +2929,6 @@ void Achievements::DrawLeaderboardsWindow()
 		}
 	}
 	ImGuiFullscreen::EndFullscreenWindow();
-	FullscreenUI::SetStandardSelectionFooterText(true);
 
 	if (!is_leaderboard_open)
 	{
@@ -2935,6 +2949,8 @@ void Achievements::DrawLeaderboardsWindow()
 			ImGuiFullscreen::EndMenuButtons();
 		}
 		ImGuiFullscreen::EndFullscreenWindow();
+
+		FullscreenUI::SetStandardSelectionFooterText(true);
 	}
 	else
 	{
@@ -3001,6 +3017,24 @@ void Achievements::DrawLeaderboardsWindow()
 			ImGuiFullscreen::EndMenuButtons();
 		}
 		ImGuiFullscreen::EndFullscreenWindow();
+
+		if (ImGuiFullscreen::IsGamepadInputSource())
+		{
+			const bool circleOK = ImGui::GetIO().ConfigNavSwapGamepadButtons;
+			ImGuiFullscreen::SetFullscreenFooterText(std::array{
+				std::make_pair(ICON_PF_DPAD_LEFT_RIGHT, TRANSLATE_SV("Achievements", "Switch Rankings")),
+				std::make_pair(ICON_PF_DPAD_UP_DOWN, TRANSLATE_SV("Achievements", "Change Selection")),
+				std::make_pair(circleOK ? ICON_PF_BUTTON_CROSS : ICON_PF_BUTTON_CIRCLE, TRANSLATE_SV("Achievements", "Back")),
+			});
+		}
+		else
+		{
+			ImGuiFullscreen::SetFullscreenFooterText(std::array{
+				std::make_pair(ICON_PF_ARROW_LEFT ICON_PF_ARROW_RIGHT, TRANSLATE_SV("Achievements", "Switch Rankings")),
+				std::make_pair(ICON_PF_ARROW_UP ICON_PF_ARROW_DOWN, TRANSLATE_SV("Achievements", "Change Selection")),
+				std::make_pair(ICON_PF_ESC, TRANSLATE_SV("Achievements", "Back")),
+			});
+		}
 	}
 
 	if (close_leaderboard_on_exit)

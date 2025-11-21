@@ -101,7 +101,6 @@
     <ClCompile Include="LogWindow.cpp" />
     <ClCompile Include="QtProgressCallback.cpp" />
     <ClCompile Include="Settings\DebugAnalysisSettingsWidget.cpp" />
-    <ClCompile Include="Settings\DebugUserInterfaceSettingsWidget.cpp" />
     <ClCompile Include="Settings\DebugSettingsWidget.cpp" />
     <ClCompile Include="Settings\FolderSettingsWidget.cpp" />
     <ClCompile Include="Settings\GameCheatSettingsWidget.cpp" />
@@ -147,6 +146,7 @@
     <ClCompile Include="Settings\GameListSettingsWidget.cpp" />
     <ClCompile Include="Settings\GraphicsSettingsWidget.cpp" />
     <ClCompile Include="Settings\InterfaceSettingsWidget.cpp" />
+    <ClCompile Include="Settings\SettingsWidget.cpp" />
     <ClCompile Include="Settings\SettingsWindow.cpp" />
     <ClCompile Include="Settings\AdvancedSettingsWidget.cpp" />
     <ClCompile Include="Settings\GameFixSettingsWidget.cpp" />
@@ -171,6 +171,7 @@
     <ClCompile Include="AutoUpdaterDialog.cpp" />
     <ClCompile Include="CoverDownloadDialog.cpp" />
     <ClCompile Include="DisplayWidget.cpp" />
+    <ClCompile Include="ShortcutCreationDialog.cpp" />
     <ClCompile Include="QtHost.cpp" />
     <ClCompile Include="MainWindow.cpp" />
     <ClCompile Include="PrecompiledHeader.cpp">
@@ -188,6 +189,7 @@
     <QtMoc Include="Settings\BIOSSettingsWidget.h" />
     <QtMoc Include="Settings\EmulationSettingsWidget.h" />
     <QtMoc Include="Settings\GraphicsSettingsWidget.h" />
+    <QtMoc Include="Settings\SettingsWidget.h" />
     <QtMoc Include="Settings\SettingsWindow.h" />
     <QtMoc Include="Settings\AdvancedSettingsWidget.h" />
     <QtMoc Include="Settings\GameFixSettingsWidget.h" />
@@ -214,7 +216,6 @@
     <ClInclude Include="Settings\ControllerSettingWidgetBinder.h" />
     <QtMoc Include="Settings\FolderSettingsWidget.h" />
     <QtMoc Include="Settings\DebugAnalysisSettingsWidget.h" />
-    <QtMoc Include="Settings\DebugUserInterfaceSettingsWidget.h" />
     <QtMoc Include="Settings\DebugSettingsWidget.h" />
     <QtMoc Include="Settings\GameCheatSettingsWidget.h" />
     <QtMoc Include="Settings\GamePatchSettingsWidget.h" />
@@ -267,6 +268,7 @@
     <QtMoc Include="AboutDialog.h" />
     <QtMoc Include="AutoUpdaterDialog.h" />
     <QtMoc Include="CoverDownloadDialog.h" />
+    <QtMoc Include="ShortcutCreationDialog.h" />
     <QtMoc Include="MainWindow.h" />
     <QtMoc Include="DisplayWidget.h" />
   </ItemGroup>
@@ -285,6 +287,7 @@
     <ClCompile Include="$(IntDir)Settings\moc_GameListSettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_GraphicsSettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_InterfaceSettingsWidget.cpp" />
+    <ClCompile Include="$(IntDir)Settings\moc_SettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_SettingsWindow.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_AdvancedSettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_GameCheatSettingsWidget.cpp" />
@@ -304,7 +307,6 @@
     <ClCompile Include="$(IntDir)Settings\moc_AchievementLoginDialog.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_AchievementSettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_DebugAnalysisSettingsWidget.cpp" />
-    <ClCompile Include="$(IntDir)Settings\moc_DebugUserInterfaceSettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_DebugSettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Debugger\moc_AnalysisOptionsDialog.cpp" />
     <ClCompile Include="$(IntDir)Debugger\moc_DebuggerView.cpp" />
@@ -350,6 +352,7 @@
     <ClCompile Include="$(IntDir)moc_QtHost.cpp" />
     <ClCompile Include="$(IntDir)moc_QtProgressCallback.cpp" />
     <ClCompile Include="$(IntDir)moc_SetupWizardDialog.cpp" />
+    <ClCompile Include="$(IntDir)moc_ShortcutCreationDialog.cpp" />
     <ClCompile Include="$(IntDir)Tools\InputRecording\moc_NewInputRecordingDlg.cpp" />
     <ClCompile Include="$(IntDir)Tools\InputRecording\moc_InputRecordingViewer.cpp" />
     <ClCompile Include="$(IntDir)qrc_resources.cpp">
@@ -360,6 +363,7 @@
     <QtUi Include="AboutDialog.ui" />
     <QtUi Include="AutoUpdaterDialog.ui" />
     <QtUi Include="CoverDownloadDialog.ui" />
+    <QtUi Include="ShortcutCreationDialog.ui" />
     <QtUi Include="Debugger\AnalysisOptionsDialog.ui" />
     <QtUi Include="Debugger\Breakpoints\BreakpointDialog.ui" />
     <QtUi Include="Debugger\Breakpoints\BreakpointView.ui" />
@@ -400,8 +404,10 @@
     <QtUi Include="Settings\ControllerMouseSettingsDialog.ui" />
     <QtUi Include="Settings\ControllerSettingsWindow.ui" />
     <QtUi Include="Settings\DebugAnalysisSettingsWidget.ui" />
-    <QtUi Include="Settings\DebugSettingsWidget.ui" />
-    <QtUi Include="Settings\DebugUserInterfaceSettingsWidget.ui" />
+    <QtUi Include="Settings\DebugAnalysisSettingsTab.ui" />
+    <QtUi Include="Settings\DebugGSSettingsTab.ui" />
+    <QtUi Include="Settings\DebugLoggingSettingsTab.ui" />
+    <QtUi Include="Settings\DebugUserInterfaceSettingsTab.ui" />
     <QtUi Include="Settings\DEV9DnsHostDialog.ui" />
     <QtUi Include="Settings\DEV9SettingsWidget.ui" />
     <QtUi Include="Settings\EmulationSettingsWidget.ui" />
@@ -412,7 +418,17 @@
     <QtUi Include="Settings\GamePatchDetailsWidget.ui" />
     <QtUi Include="Settings\GamePatchSettingsWidget.ui" />
     <QtUi Include="Settings\GameSummaryWidget.ui" />
-    <QtUi Include="Settings\GraphicsSettingsWidget.ui" />
+    <QtUi Include="Settings\GraphicsAdvancedSettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsDisplaySettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsHardwareFixesSettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsHardwareRenderingSettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsMediaCaptureSettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsOnScreenDisplaySettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsPostProcessingSettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsSettingsHeader.ui" />
+    <QtUi Include="Settings\GraphicsSoftwareRenderingSettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsTextureReplacementSettingsTab.ui" />
+    <QtUi Include="Settings\GraphicsUpscalingFixesSettingsTab.ui" />
     <QtUi Include="Settings\InputBindingDialog.ui" />
     <QtUi Include="Settings\InterfaceSettingsWidget.ui" />
     <QtUi Include="Settings\MemoryCardConvertDialog.ui" />

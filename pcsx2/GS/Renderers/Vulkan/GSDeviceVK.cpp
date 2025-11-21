@@ -2601,6 +2601,7 @@ bool GSDeviceVK::CheckFeatures()
 	m_features.framebuffer_fetch =
 		m_optional_extensions.vk_ext_rasterization_order_attachment_access && !GSConfig.DisableFramebufferFetch;
 	m_features.texture_barrier = GSConfig.OverrideTextureBarriers != 0;
+	m_features.multidraw_fb_copy = false;
 	m_features.broken_point_sampler = false;
 
 	// geometryShader is needed because gl_PrimitiveID is part of the Geometry SPIR-V Execution Model.
@@ -2640,6 +2641,7 @@ bool GSDeviceVK::CheckFeatures()
 	DevCon.WriteLn("Optional features:%s%s%s%s%s", m_features.primitive_id ? " primitive_id" : "",
 		m_features.texture_barrier ? " texture_barrier" : "", m_features.framebuffer_fetch ? " framebuffer_fetch" : "",
 		m_features.provoking_vertex_last ? " provoking_vertex_last" : "", m_features.vs_expand ? " vs_expand" : "");
+
 	DevCon.WriteLn("Using %s for point expansion and %s for line expansion.",
 		m_features.point_expand ? "hardware" : "vertex expanding",
 		m_features.line_expand ? "hardware" : "vertex expanding");
@@ -2744,48 +2746,31 @@ std::unique_ptr<GSDownloadTexture> GSDeviceVK::CreateDownloadTexture(u32 width, 
 
 void GSDeviceVK::CopyRect(GSTexture* sTex, GSTexture* dTex, const GSVector4i& r, u32 destX, u32 destY)
 {
-	g_perfmon.Put(GSPerfMon::TextureCopies, 1);
+	// Empty rect, abort copy.
+	if (r.rempty())
+	{
+		GL_INS("VK: CopyRect rect empty.");
+		return;
+	}
 
 	GSTextureVK* const sTexVK = static_cast<GSTextureVK*>(sTex);
 	GSTextureVK* const dTexVK = static_cast<GSTextureVK*>(dTex);
-	const GSVector4i dtex_rc(0, 0, dTexVK->GetWidth(), dTexVK->GetHeight());
+	const GSVector4i dst_rect(0, 0, dTexVK->GetWidth(), dTexVK->GetHeight());
+	const bool full_draw_copy = dst_rect.eq(r);
 
+	// Source is cleared, if destination is a render target, we can carry the clear forward.
 	if (sTexVK->GetState() == GSTexture::State::Cleared)
 	{
-		// source is cleared. if destination is a render target, we can carry the clear forward
 		if (dTexVK->IsRenderTargetOrDepthStencil())
 		{
-			if (dtex_rc.eq(r))
-			{
-				// pass it forward if we're clearing the whole thing
-				if (sTexVK->IsDepthStencil())
-					dTexVK->SetClearDepth(sTexVK->GetClearDepth());
-				else
-					dTexVK->SetClearColor(sTexVK->GetClearColor());
-
+			if (ProcessClearsBeforeCopy(sTex, dTex, full_draw_copy))
 				return;
-			}
 
-			if (dTexVK->GetState() == GSTexture::State::Cleared)
-			{
-				// destination is cleared, if it's the same colour and rect, we can just avoid this entirely
-				if (dTexVK->IsDepthStencil())
-				{
-					if (dTexVK->GetClearDepth() == sTexVK->GetClearDepth())
-						return;
-				}
-				else
-				{
-					if (dTexVK->GetClearColor() == sTexVK->GetClearColor())
-						return;
-				}
-			}
-
-			// otherwise we need to do an attachment clear
+			// Do an attachment clear.
 			const bool depth = (dTexVK->GetType() == GSTexture::Type::DepthStencil);
-			OMSetRenderTargets(depth ? nullptr : dTexVK, depth ? dTexVK : nullptr, dtex_rc);
+			OMSetRenderTargets(depth ? nullptr : dTexVK, depth ? dTexVK : nullptr, dst_rect);
 			BeginRenderPassForStretchRect(
-				dTexVK, dtex_rc, GSVector4i(destX, destY, destX + r.width(), destY + r.height()));
+				dTexVK, dst_rect, GSVector4i(destX, destY, destX + r.width(), destY + r.height()));
 
 			// so use an attachment clear
 			VkClearAttachment ca;
@@ -2797,6 +2782,7 @@ void GSDeviceVK::CopyRect(GSTexture* sTex, GSTexture* dTex, const GSVector4i& r,
 
 			const VkClearRect cr = {{{0, 0}, {static_cast<u32>(r.width()), static_cast<u32>(r.height())}}, 0u, 1u};
 			vkCmdClearAttachments(GetCurrentCommandBuffer(), 1, &ca, 1, &cr);
+
 			return;
 		}
 
@@ -2804,9 +2790,11 @@ void GSDeviceVK::CopyRect(GSTexture* sTex, GSTexture* dTex, const GSVector4i& r,
 		sTexVK->CommitClear();
 	}
 
+	g_perfmon.Put(GSPerfMon::TextureCopies, 1);
+
 	// if the destination has been cleared, and we're not overwriting the whole thing, commit the clear first
 	// (the area outside of where we're copying to)
-	if (dTexVK->GetState() == GSTexture::State::Cleared && !dtex_rc.eq(r))
+	if (dTexVK->GetState() == GSTexture::State::Cleared && !full_draw_copy)
 		dTexVK->CommitClear();
 
 	// *now* we can do a normal image copy.
@@ -3166,11 +3154,12 @@ void GSDeviceVK::FilteredDownsampleTexture(GSTexture* sTex, GSTexture* dTex, u32
 		int downsample_factor;
 		int pad0;
 		float weight;
-		float pad1[3];
+		float step_multiplier;
+		float pad1[2];
 	};
 
 	const Uniforms uniforms = {
-		clamp_min, static_cast<int>(downsample_factor), 0, static_cast<float>(downsample_factor * downsample_factor)};
+		clamp_min, static_cast<int>(downsample_factor), 0, static_cast<float>(downsample_factor * downsample_factor), (GSConfig.UserHacks_NativeScaling > GSNativeScaling::Aggressive) ? 2.0f : 1.0f};
 	SetUtilityPushConstants(&uniforms, sizeof(uniforms));
 
 	const ShaderConvert shader = ShaderConvert::DOWNSAMPLE_COPY;
@@ -6068,59 +6057,35 @@ void GSDeviceVK::SendHWDraw(const GSHWDrawConfig& config, GSTextureVK* draw_rt,
 	const VkDependencyFlags barrier_flags = GetColorBufferBarrierFlags();
 	if (full_barrier)
 	{
+		pxAssert(config.drawlist && !config.drawlist->empty());
+
 		const VkImageMemoryBarrier barrier = GetColorBufferBarrier(draw_rt);
 		const u32 indices_per_prim = config.indices_per_prim;
+		const u32 draw_list_size = static_cast<u32>(config.drawlist->size());
 
-		if (config.drawlist)
+		GL_PUSH("Split the draw");
+		g_perfmon.Put(
+			GSPerfMon::Barriers, static_cast<u32>(draw_list_size) - static_cast<u32>(skip_first_barrier));
+
+		u32 p = 0;
+		u32 n = 0;
+
+		if (skip_first_barrier)
 		{
-			GL_PUSH("Split the draw (SPRITE)");
-			g_perfmon.Put(
-				GSPerfMon::Barriers, static_cast<u32>(config.drawlist->size()) - static_cast<u32>(skip_first_barrier));
-
-			const u32 indices_per_prim = config.indices_per_prim;
-			const u32 draw_list_size = static_cast<u32>(config.drawlist->size());
-			const VkImageMemoryBarrier barrier = GetColorBufferBarrier(draw_rt);
-			u32 p = 0;
-			u32 n = 0;
-
-			if (skip_first_barrier)
-			{
-				const u32 count = (*config.drawlist)[n] * indices_per_prim;
-				DrawIndexedPrimitive(p, count);
-				p += count;
-				++n;
-			}
-
-			for (; n < draw_list_size; n++)
-			{
-				vkCmdPipelineBarrier(GetCurrentCommandBuffer(), VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, barrier_flags, 0, nullptr, 0, nullptr, 1, &barrier);
-
-				const u32 count = (*config.drawlist)[n] * indices_per_prim;
-				DrawIndexedPrimitive(p, count);
-				p += count;
-			}
+			const u32 count = (*config.drawlist)[n] * indices_per_prim;
+			DrawIndexedPrimitive(p, count);
+			p += count;
+			++n;
 		}
-		else
+
+		for (; n < draw_list_size; n++)
 		{
-			GL_PUSH("Split single draw in %d draw", config.nindices / indices_per_prim);
-			g_perfmon.Put(
-				GSPerfMon::Barriers, (config.nindices / indices_per_prim) - static_cast<u32>(skip_first_barrier));
+			vkCmdPipelineBarrier(GetCurrentCommandBuffer(), VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, barrier_flags, 0, nullptr, 0, nullptr, 1, &barrier);
 
-			u32 p = 0;
-			if (skip_first_barrier)
-			{
-				DrawIndexedPrimitive(p, indices_per_prim);
-				p += indices_per_prim;
-			}
-
-			for (; p < config.nindices; p += indices_per_prim)
-			{
-				vkCmdPipelineBarrier(GetCurrentCommandBuffer(), VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, barrier_flags, 0, nullptr, 0, nullptr, 1, &barrier);
-
-				DrawIndexedPrimitive(p, indices_per_prim);
-			}
+			const u32 count = (*config.drawlist)[n] * indices_per_prim;
+			DrawIndexedPrimitive(p, count);
+			p += count;
 		}
 
 		return;

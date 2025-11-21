@@ -37,6 +37,7 @@
 #include "SIO/Sio0.h"
 #include "SIO/Sio2.h"
 #include "SPU2/spu2.h"
+#include "SupportURLs.h"
 #include "USB/USB.h"
 #include "Vif_Dynarec.h"
 #include "VMManager.h"
@@ -52,6 +53,7 @@
 #include "common/StringUtil.h"
 #include "common/Threading.h"
 #include "common/Timer.h"
+#include "common/emitter/x86emitter.h"
 
 #include "IconsFontAwesome6.h"
 #include "IconsPromptFont.h"
@@ -391,6 +393,10 @@ bool VMManager::Internal::CPUThreadInitialize()
 	if (!cpuinfo_initialize())
 		Console.Error("cpuinfo_initialize() failed.");
 
+#ifdef _M_X86
+	x86Emitter::use_avx = g_cpu.vectorISA >= ProcessorFeatures::VectorISA::AVX;
+#endif
+
 	LogCPUCapabilities();
 
 	if (!SysMemory::Allocate())
@@ -479,7 +485,7 @@ void VMManager::UpdateLoggingSettings(SettingsInterface& si)
 	if (system_console_enabled != Log::IsConsoleOutputEnabled())
 		Log::SetConsoleOutputLevel(system_console_enabled ? level : LOGLEVEL_NONE);
 
-	// Debug console only exists on Windows.
+		// Debug console only exists on Windows.
 #ifdef _WIN32
 	const bool debug_console_enabled = IsDebuggerPresent() && si.GetBoolValue("Logging", "EnableDebugConsole", false);
 	Log::SetDebugOutputLevel(debug_console_enabled ? level : LOGLEVEL_NONE);
@@ -770,8 +776,8 @@ std::string VMManager::GetGameSettingsPath(const std::string_view game_serial, u
 	std::string sanitized_serial(Path::SanitizeFileName(game_serial));
 
 	return game_serial.empty() ?
-			   Path::Combine(EmuFolders::GameSettings, fmt::format("{:08X}.ini", game_crc)) :
-			   Path::Combine(EmuFolders::GameSettings, fmt::format("{}_{:08X}.ini", sanitized_serial, game_crc));
+	           Path::Combine(EmuFolders::GameSettings, fmt::format("{:08X}.ini", game_crc)) :
+	           Path::Combine(EmuFolders::GameSettings, fmt::format("{}_{:08X}.ini", sanitized_serial, game_crc));
 }
 
 std::string VMManager::GetDiscOverrideFromGameSettings(const std::string& elf_path)
@@ -1318,6 +1324,15 @@ bool VMManager::Initialize(VMBootParameters boot_params)
 		}
 	}
 
+	Error cdvd_lock_error;
+	if (!cdvdLock(&cdvd_lock_error))
+	{
+		Host::ReportErrorAsync("Startup Error", cdvd_lock_error.GetDescription());
+		return false;
+	}
+
+	ScopedGuard unlock_cdvd = &cdvdUnlock;
+
 	// resolve source type
 	if (boot_params.source_type.has_value())
 	{
@@ -1348,14 +1363,15 @@ bool VMManager::Initialize(VMBootParameters boot_params)
 		Console.WriteLn("Loading BIOS...");
 		if (!LoadBIOS())
 		{
-			Host::ReportErrorAsync(TRANSLATE_SV("VMManager", "Error"),
-				TRANSLATE_SV("VMManager",
-					"PCSX2 requires a PS2 BIOS in order to run.\n\n"
-					"For legal reasons, you *must* obtain a BIOS from an actual PS2 unit that you own (borrowing "
-					"doesn't count).\n\n"
-					"Once dumped, this BIOS image should be placed in the bios folder within the data directory "
-					"(Tools Menu -> Open Data Directory).\n\n"
-					"Please consult the FAQs and Guides for further instructions."));
+			Host::ReportErrorAsync(TRANSLATE_SV("VMManager", "Error – No BIOS Present"),
+				fmt::format(
+					TRANSLATE_FS("VMManager",
+						"PCSX2 requires a PlayStation 2 BIOS in order to run.\n\n"
+						"For legal reasons, you will need to obtain this BIOS from a PlayStation 2 unit which you own.\n\n"
+						"For step-by-step help with this process, please consult the setup guide at {}.\n\n"
+						"PCSX2 will be able to run once you've placed your BIOS image inside the folder named \"bios\" within the data directory "
+						"(Tools Menu -> Open Data Directory)."),
+					PCSX2_DOCUMENTATION_BIOS_URL_SHORTENED));
 			return false;
 		}
 
@@ -1554,6 +1570,7 @@ bool VMManager::Initialize(VMBootParameters boot_params)
 	close_memcards.Cancel();
 	close_cdvd.Cancel();
 	close_cdvd_files.Cancel();
+	unlock_cdvd.Cancel();
 	close_state.Cancel();
 
 	if (EmuConfig.CdvdPrecache)
@@ -1661,6 +1678,8 @@ void VMManager::Shutdown(bool save_resume_state)
 		GSDumpReplayer::Shutdown();
 	else
 		cdvdSaveNVRAM();
+
+	cdvdUnlock();
 
 	s_state.store(VMState::Shutdown, std::memory_order_release);
 	FullscreenUI::OnVMDestroyed();
@@ -1965,11 +1984,9 @@ bool VMManager::LoadState(const char* filename)
 {
 	if (Achievements::IsHardcoreModeActive())
 	{
-		Achievements::ConfirmHardcoreModeDisableAsync(TRANSLATE("VMManager", "Loading state"),
-			[filename = std::string(filename)](bool approved) {
-				if (approved)
-					LoadState(filename.c_str());
-			});
+		Host::AddIconOSDMessage("LoadStateHardcoreBlocked", ICON_FA_TRIANGLE_EXCLAMATION,
+			TRANSLATE_SV("VMManager", "Cannot load save state while RetroAchievements Hardcore Mode is active."),
+			Host::OSD_WARNING_DURATION);
 		return false;
 	}
 
@@ -2002,11 +2019,9 @@ bool VMManager::LoadStateFromSlot(s32 slot, bool backup)
 
 	if (Achievements::IsHardcoreModeActive())
 	{
-		Achievements::ConfirmHardcoreModeDisableAsync(TRANSLATE("VMManager", "Loading state"),
-			[slot](bool approved) {
-				if (approved)
-					LoadStateFromSlot(slot);
-			});
+		Host::AddIconOSDMessage("LoadStateHardcoreBlocked", ICON_FA_TRIANGLE_EXCLAMATION,
+			fmt::format(TRANSLATE_FS("VMManager", "Cannot load save {} from slot {} while RetroAchievements Hardcore Mode is active."), backup ? TRANSLATE("VMManager", "backup state") : TRANSLATE("VMManager", "state"), slot),
+			Host::OSD_WARNING_DURATION);
 		return false;
 	}
 
@@ -2218,12 +2233,9 @@ void VMManager::FrameAdvance(u32 num_frames /*= 1*/)
 
 	if (Achievements::IsHardcoreModeActive())
 	{
-		Achievements::ConfirmHardcoreModeDisableAsync(TRANSLATE("VMManager", "Frame advancing"),
-			[num_frames](bool approved) {
-				if (approved)
-					FrameAdvance(num_frames);
-			});
-
+		Host::AddIconOSDMessage("FrameAdvanceHardcoreBlocked", ICON_FA_TRIANGLE_EXCLAMATION,
+			TRANSLATE_SV("VMManager", "Cannot frame advance while RetroAchievements Hardcore Mode is active."),
+			Host::OSD_WARNING_DURATION);
 		return;
 	}
 
@@ -2246,8 +2258,15 @@ bool VMManager::ChangeDisc(CDVD_SourceType source, std::string path)
 	{
 		if (source == CDVD_SourceType::NoDisc)
 		{
-			Host::AddIconOSDMessage("ChangeDisc", ICON_FA_COMPACT_DISC, TRANSLATE_SV("VMManager", "Disc removed."),
-				Host::OSD_INFO_DURATION);
+			if (old_path.empty())
+				Host::AddIconOSDMessage("ChangeDisc", ICON_FA_COMPACT_DISC, TRANSLATE_SV("VMManager", "No disc to remove."),
+					Host::OSD_INFO_DURATION);
+			else
+			{
+				Host::AddIconOSDMessage("ChangeDisc", ICON_FA_COMPACT_DISC, TRANSLATE_SV("VMManager", "Disc removed."),
+					Host::OSD_INFO_DURATION);
+				Console.WriteLnFmt("Removed disc: '{}'", old_path);
+			}
 		}
 		else
 		{
@@ -2527,11 +2546,11 @@ void VMManager::LogCPUCapabilities()
 
 #ifdef _M_X86
 	std::string extensions;
-	if (cpuinfo_has_x86_avx())
+	if (g_cpu.vectorISA >= ProcessorFeatures::VectorISA::AVX)
 		extensions += "AVX ";
-	if (cpuinfo_has_x86_avx2())
+	if (g_cpu.vectorISA >= ProcessorFeatures::VectorISA::AVX2)
 		extensions += "AVX2 ";
-	if (cpuinfo_has_x86_avx512f())
+	if (g_cpu.vectorISA >= ProcessorFeatures::VectorISA::AVX512F)
 		extensions += "AVX512F ";
 #ifdef _M_ARM64
 	if (cpuinfo_has_arm_neon())
@@ -3055,7 +3074,6 @@ void VMManager::EnforceAchievementsChallengeModeSettings()
 {
 	if (!Achievements::IsHardcoreModeActive())
 	{
-		Host::RemoveKeyedOSDMessage("ChallengeDisableCheats");
 		return;
 	}
 
@@ -3072,8 +3090,8 @@ void VMManager::EnforceAchievementsChallengeModeSettings()
 	// Can't use cheats.
 	if (EmuConfig.EnableCheats)
 	{
-		Host::AddKeyedOSDMessage("ChallengeDisableCheats",
-			TRANSLATE_STR("VMManager", "Cheats have been disabled due to achievements hardcore mode."),
+		Host::AddIconOSDMessage("ChallengeDisableCheats", ICON_FA_TRIANGLE_EXCLAMATION,
+			TRANSLATE_SV("VMManager", "Cheats have been disabled due to RetroAchievements Hardcore Mode."),
 			Host::OSD_WARNING_DURATION);
 		EmuConfig.EnableCheats = false;
 	}
@@ -3187,6 +3205,21 @@ void VMManager::WarnAboutUnsafeSettings()
 			append(ICON_FA_BUG,
 				TRANSLATE_SV("VMManager", "Debug device is enabled. This will massively reduce performance."));
 		}
+		if (EmuConfig.GS.Dithering == 3)
+		{
+			append(ICON_FA_TV,
+				TRANSLATE_SV("VMManager", "Dithering is set to Force 32 bit. This will break rendering in some games."));
+		}
+		if (EmuConfig.GS.Dithering == 0)
+		{
+			append(ICON_FA_TV,
+				TRANSLATE_SV("VMManager", "Dithering is disabled. This will cause color banding in some games."));
+		}
+		if (EmuConfig.GS.IntegerScaling)
+		{
+			append(ICON_FA_TV,
+				TRANSLATE_SV("VMManager", "Integer scaling is enabled. This may shrink the image."));
+		}
 		static bool render_change_warn = false;
 		if (EmuConfig.GS.Renderer != GSRendererType::Auto && EmuConfig.GS.Renderer != GSRendererType::SW && !render_change_warn)
 		{
@@ -3194,7 +3227,7 @@ void VMManager::WarnAboutUnsafeSettings()
 			render_change_warn = true;
 
 			append(ICON_FA_CIRCLE_EXCLAMATION,
-				TRANSLATE_SV("VMManager", "Renderer is not set to Automatic. This may cause performance problems and graphical issues."));
+				TRANSLATE_SV("VMManager", "Graphics API is not set to Automatic. This may cause performance problems and graphical issues."));
 		}
 	}
 	if (EmuConfig.GS.TextureFiltering != BiFiltering::PS2)

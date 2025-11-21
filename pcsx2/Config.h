@@ -456,6 +456,8 @@ enum class GSNativeScaling : u8
 	Off,
 	Normal,
 	Aggressive,
+	NormalUpscaled,
+	AggressiveUpscaled,
 	MaxCount
 };
 
@@ -711,7 +713,7 @@ struct Pcsx2Config
 
 		union
 		{
-			u64 bitset;
+			u64 bitset[2];
 
 			struct
 			{
@@ -740,6 +742,7 @@ struct Pcsx2Config
 					OsdShowGSStats : 1,
 					OsdShowIndicators : 1,
 					OsdShowSettings : 1,
+					OsdshowPatches : 1,
 					OsdShowInputs : 1,
 					OsdShowFrameTimes : 1,
 					OsdShowVersion : 1,
@@ -774,6 +777,9 @@ struct Pcsx2Config
 					SaveDepth : 1,
 					SaveAlpha : 1,
 					SaveInfo : 1,
+					SaveTransferImages : 1,
+					SaveDrawStats : 1,
+					SaveFrameStats : 1,
 					DumpReplaceableTextures : 1,
 					DumpReplaceableMipmaps : 1,
 					DumpTexturesWithFMVActive : 1,
@@ -787,7 +793,7 @@ struct Pcsx2Config
 					VideoCaptureAutoResolution : 1,
 					EnableAudioCapture : 1,
 					EnableAudioCaptureParameters : 1,
-					OrganizeScreenshotsByGame : 1;
+					OrganizeSnapshotsByGame : 1;
 			};
 		};
 
@@ -940,7 +946,7 @@ struct Pcsx2Config
 			VisualDebugEnabled : 1;
 		BITFIELD_END
 
-		u32 OutputVolume = 100;
+		u32 StandardVolume = 100;
 		u32 FastForwardVolume = 100;
 		bool OutputMuted = false;
 
@@ -1256,7 +1262,8 @@ struct Pcsx2Config
 			InfoSound : 1,
 			UnlockSound : 1,
 			LBSubmitSound : 1,
-			Overlays : 1;
+			Overlays : 1,
+			LBOverlays : 1;
 		BITFIELD_END
 
 		u32 NotificationsDuration = DEFAULT_NOTIFICATION_DURATION;
@@ -1311,7 +1318,8 @@ struct Pcsx2Config
 		InhibitScreensaver : 1,
 		BackupSavestate : 1,
 		McdFolderAutoManage : 1,
-		ManuallySetRealTimeClock : 1,
+		ManuallySetRealTimeClock : 1, // passes user-set real-time clock information to cdvd at startup
+		UseSystemLocaleFormat : 1, // presents OS time format instead of yyyy-MM-dd HH:mm:ss for manual RTC
 
 		HostFs : 1,
 
