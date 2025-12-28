@@ -141,41 +141,6 @@ void EmuThread::stopInThread()
 	m_shutdown_flag.store(true);
 }
 
-bool EmuThread::confirmMessage(const QString& title, const QString& message)
-{
-	if (!isOnEmuThread())
-	{
-		// This is definitely deadlock risky, but unlikely to happen (why would GS be confirming?).
-		bool result = false;
-		QMetaObject::invokeMethod(g_emu_thread, "confirmMessage", Qt::BlockingQueuedConnection, Q_RETURN_ARG(bool, result),
-			Q_ARG(const QString&, title), Q_ARG(const QString&, message));
-		return result;
-	}
-
-	// Easy if there's no VM.
-	if (!VMManager::HasValidVM())
-		return emit messageConfirmed(title, message);
-
-	// Preemptively pause/set surfaceless on the emu thread, because it can't run while the popup is open.
-	const bool was_paused = (VMManager::GetState() == VMState::Paused);
-	const bool was_fullscreen = isFullscreen();
-	if (!was_paused)
-		VMManager::SetPaused(true);
-	if (was_fullscreen)
-		setSurfaceless(true);
-
-	// This won't return until the user confirms one way or another.
-	const bool result = emit messageConfirmed(title, message);
-
-	// Resume VM after confirming.
-	if (was_fullscreen)
-		setSurfaceless(false);
-	if (!was_paused)
-		VMManager::SetPaused(false);
-
-	return result;
-}
-
 void EmuThread::startFullscreenUI(bool fullscreen)
 {
 	if (!isOnEmuThread())
@@ -229,6 +194,9 @@ void EmuThread::stopFullscreenUI()
 	{
 		m_run_fullscreen_ui.store(false, std::memory_order_release);
 		emit onFullscreenUIStateChange(false);
+		
+		// Resume and refresh background when FullscreenUI exits
+		QMetaObject::invokeMethod(g_main_window, "updateGameListBackground", Qt::QueuedConnection);
 	}
 }
 
@@ -240,8 +208,6 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 		return;
 	}
 
-	pxAssertRel(!VMManager::HasValidVM(), "VM is shut down");
-
 	// Determine whether to start fullscreen or not.
 	m_is_rendering_to_main = shouldRenderToMain();
 	if (boot_params->fullscreen.has_value())
@@ -249,22 +215,38 @@ void EmuThread::startVM(std::shared_ptr<VMBootParameters> boot_params)
 	else
 		m_is_fullscreen = Host::GetBaseBoolSettingValue("UI", "StartFullscreen", false);
 
-	if (!VMManager::Initialize(*boot_params))
-		return;
+	auto hardcore_disable_callback = [](std::string reason, VMBootRestartCallback restart_callback) {
+		QtHost::RunOnUIThread([reason = std::move(reason), restart_callback = std::move(restart_callback)]() {
+			QString title(Achievements::GetHardcoreModeDisableTitle());
+			QString text(QString::fromStdString(Achievements::GetHardcoreModeDisableText(reason.c_str())));
+			if (g_main_window->confirmMessage(title, text))
+				Host::RunOnCPUThread(restart_callback);
+		});
+	};
 
-	if (!Host::GetBoolSettingValue("UI", "StartPaused", false))
-	{
-		// This will come back and call OnVMResumed().
-		VMManager::SetState(VMState::Running);
-	}
-	else
-	{
-		// When starting paused, redraw the window, so there's at least something there.
-		redrawDisplayWindow();
-		Host::OnVMPaused();
-	}
+	auto done_callback = [](VMBootResult result, const Error& error) {
+		if (result != VMBootResult::StartupSuccess)
+		{
+			Host::ReportErrorAsync(TRANSLATE_STR("QtHost", "Startup Error"), error.GetDescription());
+			return;
+		}
 
-	m_event_loop->quit();
+		if (!Host::GetBoolSettingValue("UI", "StartPaused", false))
+		{
+			// This will come back and call OnVMResumed().
+			VMManager::SetState(VMState::Running);
+		}
+		else
+		{
+			// When starting paused, redraw the window, so there's at least something there.
+			g_emu_thread->redrawDisplayWindow();
+			Host::OnVMPaused();
+		}
+
+		g_emu_thread->getEventLoop()->quit();
+	};
+
+	VMManager::InitializeAsync(*boot_params, std::move(hardcore_disable_callback), std::move(done_callback));
 }
 
 void EmuThread::resetVM()
@@ -318,7 +300,13 @@ void EmuThread::loadState(const QString& filename)
 	if (!VMManager::HasValidVM())
 		return;
 
-	VMManager::LoadState(filename.toUtf8().constData());
+	Error error;
+	if (!VMManager::LoadState(filename.toUtf8().constData(), &error))
+	{
+		QtHost::RunOnUIThread([message = QString::fromStdString(error.GetDescription())]() {
+			g_main_window->reportStateLoadError(message, std::nullopt, false);
+		});
+	}
 }
 
 void EmuThread::loadStateFromSlot(qint32 slot, bool load_backup)
@@ -332,7 +320,13 @@ void EmuThread::loadStateFromSlot(qint32 slot, bool load_backup)
 	if (!VMManager::HasValidVM())
 		return;
 
-	VMManager::LoadStateFromSlot(slot, load_backup);
+	Error error;
+	if (!VMManager::LoadStateFromSlot(slot, load_backup, &error))
+	{
+		QtHost::RunOnUIThread([message = QString::fromStdString(error.GetDescription()), slot, load_backup]() {
+			g_main_window->reportStateLoadError(message, slot, load_backup);
+		});
+	}
 }
 
 void EmuThread::saveState(const QString& filename)
@@ -346,11 +340,11 @@ void EmuThread::saveState(const QString& filename)
 	if (!VMManager::HasValidVM())
 		return;
 
-	if (!VMManager::SaveState(filename.toUtf8().constData()))
-	{
-		// this one is usually the result of a user-chosen path, so we can display a message box safely here
-		Console.Error("Failed to save state");
-	}
+	VMManager::SaveState(filename.toUtf8().constData(), true, false, [](const std::string& error) {
+		QtHost::RunOnUIThread([message = QString::fromStdString(error)]() {
+			g_main_window->reportStateSaveError(message, std::nullopt);
+		});
+	});
 }
 
 void EmuThread::saveStateToSlot(qint32 slot)
@@ -364,7 +358,11 @@ void EmuThread::saveStateToSlot(qint32 slot)
 	if (!VMManager::HasValidVM())
 		return;
 
-	VMManager::SaveStateToSlot(slot);
+	VMManager::SaveStateToSlot(slot, true, [slot](const std::string& error) {
+		QtHost::RunOnUIThread([message = QString::fromStdString(error), slot]() {
+			g_main_window->reportStateSaveError(message, slot);
+		});
+	});
 }
 
 void EmuThread::run()
@@ -1603,7 +1601,7 @@ bool QtHost::DownloadFile(QWidget* parent, const QString& title, std::string url
 		!FileSystem::WriteBinaryFile(path.c_str(), data.data(), data.size()))
 	{
 		QMessageBox::critical(parent, qApp->translate("EmuThread", "Error"),
-			qApp->translate("EmuThread", "Failed to write '%1'.").arg(QString::fromStdString(path)));
+			qApp->translate("EmuThread", "Failed to write downloaded data to file '%1'.").arg(QString::fromStdString(path)));
 		return false;
 	}
 
@@ -1632,13 +1630,6 @@ void Host::ReportErrorAsync(const std::string_view title, const std::string_view
 	QMetaObject::invokeMethod(g_main_window, "reportError", Qt::QueuedConnection,
 		Q_ARG(const QString&, title.empty() ? QString() : QString::fromUtf8(title.data(), title.size())),
 		Q_ARG(const QString&, message.empty() ? QString() : QString::fromUtf8(message.data(), message.size())));
-}
-
-bool Host::ConfirmMessage(const std::string_view title, const std::string_view message)
-{
-	const QString qtitle(QString::fromUtf8(title.data(), title.size()));
-	const QString qmessage(QString::fromUtf8(message.data(), message.size()));
-	return g_emu_thread->confirmMessage(qtitle, qmessage);
 }
 
 void Host::OpenURL(const std::string_view url)

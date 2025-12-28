@@ -102,9 +102,11 @@ namespace QtUtils
 
 	/// Changes whether a window is resizable.
 	void SetWindowResizeable(QWidget* widget, bool resizeable);
+	void SetWindowResizeable(QWindow* window, bool resizeable);
 
 	/// Adjusts the fixed size for a window if it's not resizeable.
 	void ResizePotentiallyFixedSizeWindow(QWidget* widget, int width, int height);
+	void ResizePotentiallyFixedSizeWindow(QWindow* window, int width, int height);
 
 	/// Returns the common window info structure for a Qt Window/Widget.
 	template <class T>
@@ -199,4 +201,12 @@ namespace QtUtils
 	/// Sets the scalable icon to a given label (svg icons, or icons with multiple size pixmaps)
 	/// The icon will then be reloaded on DPR changes using an event filter
 	void SetScalableIcon(QLabel* lbl, const QIcon& icon, const QSize& size);
+
+	/// Gets the system language code, matching it against available languages
+	/// Returns the best matching language code, or "en-US" if no match is found
+	QString GetSystemLanguageCode();
+
+	/// Gets a flag icon for a given language code
+	/// Returns an empty QIcon if no flag is available for the language
+	QIcon GetFlagIconForLanguage(const QString& language_code);
 } // namespace QtUtils

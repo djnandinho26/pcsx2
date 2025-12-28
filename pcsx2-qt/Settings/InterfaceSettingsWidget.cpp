@@ -11,6 +11,8 @@
 #include "SettingsWindow.h"
 #include "QtHost.h"
 
+#include <QtCore/QLocale>
+
 const char* InterfaceSettingsWidget::THEME_NAMES[] = {
 	QT_TRANSLATE_NOOP("InterfaceSettingsWidget", "Native"),
 //: Ignore what Crowdin says in this string about "[Light]/[Dark]" being untouchable here, these are not variables in this case and must be translated.
@@ -95,15 +97,16 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* settings_dialog
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.confirmShutdown, "UI", "ConfirmShutdown", true);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.pauseOnFocusLoss, "UI", "PauseOnFocusLoss", false);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.pauseOnControllerDisconnection, "UI", "PauseOnControllerDisconnection", false);
+	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.promptOnStateLoadSaveFailure, "UI", "PromptOnStateLoadSaveFailure", true);
 	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.discordPresence, "EmuCore", "EnableDiscordPresence", false);
 
-#ifdef __linux__ 	// Mouse locking is only supported on X11
+#ifdef __linux__ // Mouse locking is only supported on X11
 	const bool mouse_lock_supported = QGuiApplication::platformName().toLower() == "xcb";
 #else
 	const bool mouse_lock_supported = true;
 #endif
 
-	if(mouse_lock_supported)
+	if (mouse_lock_supported)
 	{
 		SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.mouseLock, "EmuCore", "EnableMouseLock", false);
 		connect(m_ui.mouseLock, &QCheckBox::checkStateChanged, [](Qt::CheckState state) {
@@ -194,6 +197,8 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* settings_dialog
 		   "and unpauses when you switch back."));
 	dialog()->registerWidgetHelp(m_ui.pauseOnControllerDisconnection, tr("Pause On Controller Disconnection"),
 		tr("Unchecked"), tr("Pauses the emulator when a controller with bindings is disconnected."));
+	dialog()->registerWidgetHelp(m_ui.promptOnStateLoadSaveFailure, tr("Pause On State Load/Save Failure"),
+		tr("Checked"), tr("Display a modal dialog when a save state load/save operation fails."));
 	dialog()->registerWidgetHelp(m_ui.startFullscreen, tr("Start Fullscreen"), tr("Unchecked"),
 		tr("Automatically switches to fullscreen mode when a game is started."));
 	dialog()->registerWidgetHelp(m_ui.hideMouseCursor, tr("Hide Cursor In Fullscreen"), tr("Unchecked"),
@@ -209,7 +214,7 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* settings_dialog
 		tr("Shows the game you are currently playing as part of your profile in Discord."));
 	dialog()->registerWidgetHelp(
 		m_ui.mouseLock, tr("Enable Mouse Lock"), tr("Unchecked"),
-		tr("Locks the mouse cursor to the windows when PCSX2 is in focus and all other windows are closed.<br><b>Unavailable on Linux Wayland.</b><br><b>Requires accessibility permissions on macOS.</b><br><b>Limited support for mixed-resolution with non-100% DPI configurations.</b>"));
+		tr("Locks the mouse cursor to the windows when PCSX2 is in focus and all other windows are closed.<br><b>Unavailable on Linux Wayland.</b><br><b>Requires accessibility permissions on macOS.</b>"));
 	dialog()->registerWidgetHelp(
 		m_ui.doubleClickTogglesFullscreen, tr("Double-Click Toggles Fullscreen"), tr("Checked"),
 		tr("Allows switching in and out of fullscreen mode by double-clicking the game window."));
@@ -222,7 +227,7 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* settings_dialog
 	dialog()->registerWidgetHelp(
 		m_ui.backgroundBrowse, tr("Game List Background"), tr("None"),
 		tr("Enable an animated/static background on the game list (where you launch your games).<br>"
-		"This background is only visible in the library and will be hidden once a game is launched. It will also be paused when it's not in focus."));
+		   "This background is only visible in the library and will be hidden once a game is launched. It will also be paused when it's not in focus."));
 	dialog()->registerWidgetHelp(
 		m_ui.backgroundReset, tr("Disable/Reset Game List Background"), tr("None"),
 		tr("Disable and reset the currently applied game list background."));
@@ -239,6 +244,12 @@ InterfaceSettingsWidget::InterfaceSettingsWidget(SettingsWindow* settings_dialog
 
 InterfaceSettingsWidget::~InterfaceSettingsWidget() = default;
 
+void InterfaceSettingsWidget::updatePromptOnStateLoadSaveFailureCheckbox(Qt::CheckState state)
+{
+	QSignalBlocker blocker(m_ui.promptOnStateLoadSaveFailure);
+	m_ui.promptOnStateLoadSaveFailure->setCheckState(state);
+}
+
 void InterfaceSettingsWidget::onRenderToSeparateWindowChanged()
 {
 	m_ui.hideMainWindow->setEnabled(m_ui.renderToSeparateWindow->isChecked());
@@ -247,18 +258,24 @@ void InterfaceSettingsWidget::onRenderToSeparateWindowChanged()
 void InterfaceSettingsWidget::populateLanguages()
 {
 	for (const std::pair<QString, QString>& it : QtHost::GetAvailableLanguageList())
-		m_ui.language->addItem(it.first, it.second);
+	{
+		QIcon flag_icon = QtUtils::GetFlagIconForLanguage(it.second);
+		if (!flag_icon.isNull())
+			m_ui.language->addItem(flag_icon, it.first, it.second);
+		else
+			m_ui.language->addItem(it.first, it.second);
+	}
 }
 
 void InterfaceSettingsWidget::onSetGameListBackgroundTriggered()
 {
 	const QString path = QDir::toNativeSeparators(
-		QFileDialog::getOpenFileName(this, tr("Select Background Image"), QString(), IMAGE_FILE_FILTER));
+		QFileDialog::getOpenFileName(this, tr("Select Background Image"), QString(), qApp->translate("InterfaceSettingsWidget", IMAGE_FILE_FILTER)));
 
 	if (path.isEmpty())
 		return;
 
-	std::string relative_path = Path::MakeRelative(QDir::toNativeSeparators(path).toStdString(), EmuFolders::DataRoot);
+	std::string relative_path = Path::MakeRelative(path.toStdString(), EmuFolders::DataRoot);
 	Host::SetBaseStringSettingValue("UI", "GameListBackgroundPath", relative_path.c_str());
 
 	Host::CommitBaseSettingChanges();

@@ -5,10 +5,12 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QFileInfo>
+#include <QtCore/QLocale>
 #include <QtCore/QtGlobal>
 #include <QtCore/QMetaObject>
 #include <QtGui/QAction>
 #include <QtGui/QDesktopServices>
+#include <QtGui/QIcon>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QPainter>
 #include <QtWidgets/QComboBox>
@@ -35,6 +37,7 @@
 
 #include "common/CocoaTools.h"
 #include "common/Console.h"
+#include "QtHost.h"
 
 #if defined(_WIN32)
 #include "common/RedtapeWindows.h"
@@ -138,8 +141,15 @@ namespace QtUtils
 
 	void resizeAndScalePixmap(QPixmap* pm, const int expected_width, const int expected_height, const qreal dpr, const ScalingMode scaling_mode, const float opacity)
 	{
-		if (!pm || pm->isNull() || pm->width() <= 0 || pm->height() <= 0)
+		if (!pm || pm->width() <= 0 || pm->height() <= 0)
 			return;
+
+		if (dpr <= 0.0)
+		{
+			Console.ErrorFmt("resizeAndScalePixmap: Invalid device pixel ratio ({}) - pixmap will be null", dpr);
+			*pm = QPixmap();
+			return;
+		}
 
 		const int dpr_expected_width = qRound(expected_width * dpr);
 		const int dpr_expected_height = qRound(expected_height * dpr);
@@ -193,8 +203,7 @@ namespace QtUtils
 					qRound(scaledSize.width()),
 					qRound(scaledSize.height()),
 					Qt::IgnoreAspectRatio,
-					Qt::SmoothTransformation
-				);
+					Qt::SmoothTransformation);
 
 				const QRectF scaledSrcRect(0, 0, pm->width(), pm->height());
 
@@ -208,16 +217,7 @@ namespace QtUtils
 			}
 			case ScalingMode::Stretch:
 			{
-				*pm = pm->scaled(
-					dpr_expected_width,
-					dpr_expected_height,
-					Qt::IgnoreAspectRatio,
-					Qt::SmoothTransformation
-				);
-
-				const QRectF scaledSrcRect(0, 0, pm->width(), pm->height());
-
-				painter.drawPixmap(painterRect, *pm, scaledSrcRect);
+				painter.drawPixmap(painterRect, *pm, srcRect);
 				break;
 			}
 			case ScalingMode::Center:
@@ -226,7 +226,6 @@ namespace QtUtils
 				const qreal pmHeight = pm->height() / dpr;
 
 				QRectF destRect(0, 0, pmWidth, pmHeight);
-
 				destRect.moveCenter(painterRect.center());
 
 				painter.drawPixmap(destRect, *pm, srcRect);
@@ -240,13 +239,19 @@ namespace QtUtils
 				if (tileWidth <= 0 || tileHeight <= 0)
 					break;
 
-				QPixmap tileSource = pm->scaled(tileWidth, tileHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-				tileSource.setDevicePixelRatio(dpr);
-
-				QBrush tileBrush(tileSource);
-				tileBrush.setTextureImage(tileSource.toImage());
-
-				painter.fillRect(painterRect, tileBrush);
+				if (pm->devicePixelRatio() == dpr)
+				{
+					QBrush tileBrush(*pm);
+					painter.fillRect(painterRect, tileBrush);
+				}
+				else
+				{
+					QPixmap tileSource = pm->scaled(tileWidth, tileHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+					tileSource.setDevicePixelRatio(dpr);
+					QBrush tileBrush(tileSource);
+					tileBrush.setTextureImage(tileSource.toImage());
+					painter.fillRect(painterRect, tileBrush);
+				}
 				break;
 			}
 			default:
@@ -282,12 +287,12 @@ namespace QtUtils
 	{
 #if defined(_WIN32)
 		//: Windows action to show a file in Windows Explorer
-		return QCoreApplication::translate("FileOperations", "Show in Folder");
+		return QCoreApplication::translate("FileOperations", "Show in Explorer");
 #elif defined(__APPLE__)
 		//: macOS action to show a file in Finder
 		return QCoreApplication::translate("FileOperations", "Show in Finder");
 #else
-		//: Opens the system file manager to the directory containing a selected file
+		//: Linux/*NIX: Opens the system file manager to the directory containing a selected file
 		return QCoreApplication::translate("FileOperations", "Open Containing Directory");
 #endif
 	}
@@ -361,6 +366,25 @@ namespace QtUtils
 		}
 	}
 
+	void SetWindowResizeable(QWindow* window, bool resizeable)
+	{
+		if (resizeable)
+		{
+			// Min/max numbers come from uic.
+			window->setMinimumWidth(1);
+			window->setMinimumHeight(1);
+			window->setMaximumWidth(16777215);
+			window->setMaximumHeight(16777215);
+		}
+		else
+		{
+			window->setMinimumWidth(window->width());
+			window->setMinimumHeight(window->height());
+			window->setMaximumWidth(window->width());
+			window->setMaximumHeight(window->height());
+		}
+	}
+
 	void ResizePotentiallyFixedSizeWindow(QWidget* widget, int width, int height)
 	{
 		width = std::max(width, 1);
@@ -369,6 +393,22 @@ namespace QtUtils
 			widget->setFixedSize(width, height);
 
 		widget->resize(width, height);
+	}
+
+	void ResizePotentiallyFixedSizeWindow(QWindow* window, int width, int height)
+	{
+		width = std::max(width, 1);
+		height = std::max(height, 1);
+
+		if (window->minimumHeight() == window->maximumHeight())
+		{
+			window->setMinimumWidth(width);
+			window->setMinimumHeight(height);
+			window->setMaximumWidth(width);
+			window->setMaximumHeight(height);
+		}
+
+		window->resize(width, height);
 	}
 
 	QString AbstractItemModelToCSV(QAbstractItemModel* model, int role, bool useQuotes)
@@ -447,5 +487,67 @@ namespace QtUtils
 	void SetScalableIcon(QLabel* lbl, const QIcon& icon, const QSize& size)
 	{
 		new IconVariableDpiFilter(lbl, icon, size, lbl);
+	}
+
+	QString GetSystemLanguageCode()
+	{
+		std::vector<std::pair<QString, QString>> available = QtHost::GetAvailableLanguageList();
+		QString locale = QLocale::system().name();
+		locale.replace('_', '-');
+		for (const std::pair<QString, QString>& entry : available)
+		{
+			if (entry.second == locale)
+				return locale;
+		}
+		QStringView lang = QStringView(locale);
+		lang = lang.left(lang.indexOf('-'));
+		for (const std::pair<QString, QString>& entry : available)
+		{
+			QStringView avail = QStringView(entry.second);
+			avail = avail.left(avail.indexOf('-'));
+			if (avail == lang)
+				return entry.second;
+		}
+		// No matches, default to English
+		return QStringLiteral("en-US");
+	}
+
+	QIcon GetFlagIconForLanguage(const QString& language_code)
+	{
+		QString actual_language_code = language_code;
+		if (language_code == QStringLiteral("system"))
+		{
+			actual_language_code = GetSystemLanguageCode();
+		}
+
+		QString country_code;
+
+		const int dash_index = actual_language_code.indexOf('-');
+		if (dash_index > 0 && dash_index < actual_language_code.length() - 1)
+		{
+			country_code = actual_language_code.mid(dash_index + 1);
+		}
+		else
+		{
+			if (actual_language_code == QStringLiteral("en"))
+				country_code = QStringLiteral("US");
+			else
+				return QIcon(); // No flag available
+		}
+
+		// Special cases
+		if (actual_language_code == QStringLiteral("es-419"))
+		{
+			// Latin America (es-419) use Mexico flag as representative
+			country_code = QStringLiteral("MX");
+		}
+		else if (actual_language_code == QStringLiteral("sr-SP"))
+		{
+			// Serbia (SP) is not a valid ISO code, use RS (Serbia)
+			country_code = QStringLiteral("RS");
+		}
+
+		const QString flag_path = QStringLiteral("%1/icons/flags/%2.svg").arg(QtHost::GetResourcesBasePath()).arg(country_code.toLower());
+		return QIcon(flag_path);
 	}
 } // namespace QtUtils

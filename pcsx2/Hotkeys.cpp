@@ -14,6 +14,7 @@
 #include "SIO/Memcard/MemoryCardFile.h"
 
 #include "common/Assertions.h"
+#include "common/Error.h"
 #include "common/FileSystem.h"
 #include "common/Path.h"
 #include "common/Timer.h"
@@ -103,13 +104,17 @@ static void HotkeyLoadStateSlot(s32 slot)
 			return;
 		}
 
-		VMManager::LoadStateFromSlot(slot);
+		Error error;
+		if (!VMManager::LoadStateFromSlot(slot, false, &error))
+			FullscreenUI::ReportStateLoadError(error.GetDescription(), slot, false);
 	});
 }
 
 static void HotkeySaveStateSlot(s32 slot)
 {
-	VMManager::SaveStateToSlot(slot);
+	VMManager::SaveStateToSlot(slot, true, [slot](const std::string& error) {
+		FullscreenUI::ReportStateSaveError(error, slot);
+	});
 }
 
 static bool CanPause()

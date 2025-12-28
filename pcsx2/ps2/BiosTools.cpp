@@ -65,7 +65,8 @@ void ReadOSDConfigParames()
 	configParams1.version = (params[2] & 0xE0) >> 5; // OSD Ver (Not sure but best guess).
 	configParams1.language = params[2] & 0x1F; // Language.
 	configParams1.timezoneOffset = params[4] | ((u32)(params[3] & 0x7) << 8);  // Timezone offset in minutes.
-
+	configParams1.timeZoneID = params[6]; // ID for time zone selection
+	
 	// Region settings for time/date and extended language
 	configParams2.UC[1] = ((u32)params[3] & 0x78) << 1; // Daylight Savings, 24hr clock, Date format
 	configParams2.daylightSavings = configParams2.UC[1] & 0x10 ? 1 : 0;
@@ -177,7 +178,7 @@ static bool LoadBiosVersion(std::FILE* fp, u32& version, std::string& descriptio
 																  "",
 			serial.c_str());
 
-		version = strtol(vermaj, (char**)NULL, 0) << 8;
+		version = static_cast<u32>(strtol(vermaj, (char**)NULL, 0) << 8);
 		version |= strtol(vermin, (char**)NULL, 0);
 
 		Console.WriteLn("BIOS Found: %s", description.c_str());

@@ -35,7 +35,7 @@
 
 cdvdStruct cdvd;
 
-s64 PSXCLK = 36864000;
+u32 PSXCLK = 36864000;
 
 static constexpr s32 GMT9_OFFSET_SECONDS = 9 * 60 * 60; // 32400
 
@@ -927,6 +927,20 @@ void cdvdReset()
 	// Print time zone offset, DST, time format, date format, and system time basis.
 	DevCon.WriteLn(Color_StrongGreen, configParams1.timezoneOffset < 0 ? "Time Zone Offset: GMT%03d:%02d" : "Time Zone Offset: GMT+%02d:%02d",
 				   configParams1.timezoneOffset / 60, std::abs(configParams1.timezoneOffset % 60));
+
+	// Time zone ID has exactly 128 possible values.
+	if (configParams1.timeZoneID < 0x80)
+	{
+		// Cutoff for the old naming scheme (TimeZoneLocations[][0]) is v01.70 inclusive.
+		const bool new_time_zone_ID_names = ((BiosVersion >> 8) == 2) || ((BiosVersion & 0xFF) >= 90);
+		DevCon.WriteLn(Color_StrongGreen, "Time Zone Location: %s",
+			TimeZoneLocations[configParams1.timeZoneID][new_time_zone_ID_names]);
+	}
+	else
+	{
+		DevCon.WriteLn(Color_StrongRed, "Invalid time zone configuration in BIOS (ID: %d)", configParams1.timeZoneID);
+	}
+
 	DevCon.WriteLn(Color_StrongGreen, "DST: %s Time", configParams2.daylightSavings ? "Summer" : "Winter");
 	DevCon.WriteLn(Color_StrongGreen, "Time Format: %s-Hour", configParams2.timeFormat ? "12" : "24");
  	DevCon.WriteLn(Color_StrongGreen, "Date Format: %s", configParams2.dateFormat ? (configParams2.dateFormat == 2 ? "DD/MM/YYYY" : "MM/DD/YYYY") : "YYYY/MM/DD");
@@ -2928,8 +2942,19 @@ static void cdvdWrite16(u8 rt) // SCOMMAND
 
 					bit_ofs = mg_BIToffset(&cdvd.mg_buffer[0]);
 
-					memcpy(&cdvd.mg_kbit[0], &cdvd.mg_buffer[bit_ofs - 0x20], 0x10);
-					memcpy(&cdvd.mg_kcon[0], &cdvd.mg_buffer[bit_ofs - 0x10], 0x10);
+					const size_t buf_size = sizeof(cdvd.mg_buffer);
+
+					if (bit_ofs < 0x20 || (size_t)bit_ofs > buf_size)
+					{
+						fail_pol_cal();
+						break;
+					}
+
+					const size_t kbit_ofs = bit_ofs - 0x20;
+					const size_t kcon_ofs = bit_ofs - 0x10;
+
+					std::memcpy(&cdvd.mg_kbit[0], &cdvd.mg_buffer[kbit_ofs], 0x10);
+					std::memcpy(&cdvd.mg_kcon[0], &cdvd.mg_buffer[kcon_ofs], 0x10);
 
 					if ((cdvd.mg_buffer[bit_ofs + 5] || cdvd.mg_buffer[bit_ofs + 6] || cdvd.mg_buffer[bit_ofs + 7]) ||
 						(GetBufferU16(&cdvd.mg_buffer[0],bit_ofs + 4) * 16 + bit_ofs + 8 + 16 != GetBufferU16(&cdvd.mg_buffer[0], 0x14)))
@@ -2955,7 +2980,31 @@ static void cdvdWrite16(u8 rt) // SCOMMAND
 			{
 				SetSCMDResultSize(3); //in:0
 				const int bit_ofs = mg_BIToffset(&cdvd.mg_buffer[0]);
-				memcpy(&cdvd.mg_buffer[0], &cdvd.mg_buffer[bit_ofs], static_cast<size_t>(8 + 16 * static_cast<int>(cdvd.mg_buffer[bit_ofs + 4])));
+
+				if (bit_ofs < 0)
+				{
+					fail_pol_cal();
+					break;
+				}
+
+				const size_t bufsize = sizeof(cdvd.mg_buffer);
+				const size_t ofs = static_cast<size_t>(bit_ofs);
+
+				if (ofs > bufsize - 5) // Make sure we can read the block count
+				{
+					fail_pol_cal();
+					break;
+				}
+				const unsigned int blocks = static_cast<unsigned int>(cdvd.mg_buffer[ofs + 4]);
+				const size_t copy_len = 8 + 16 * static_cast<size_t>(blocks);
+
+				if (copy_len > bufsize - ofs) // Make sure we can read the blocks
+				{
+					fail_pol_cal();
+					break;
+				}
+
+				std::memmove(&cdvd.mg_buffer[0], &cdvd.mg_buffer[ofs], copy_len);
 
 				cdvd.mg_maxsize = 0; // don't allow any write
 				cdvd.mg_size = 8 + 16 * cdvd.mg_buffer[4]; //new offset, i just moved the data

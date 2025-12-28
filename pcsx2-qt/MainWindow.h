@@ -65,13 +65,14 @@ public:
 		void cancelResume();
 
 	private:
-		VMLock(QWidget* dialog_parent, bool was_paused, bool was_exclusive_fullscreen);
+		VMLock(QWidget* dialog_parent, bool was_paused, bool was_exclusive_fullscreen, bool owns_parent);
 		friend MainWindow;
 
 		QWidget* m_dialog_parent;
 		bool m_has_lock;
 		bool m_was_paused;
 		bool m_was_fullscreen;
+		bool m_owns_dialog_parent;
 	};
 
 	/// Default filter for opening a file.
@@ -116,10 +117,13 @@ public Q_SLOTS:
 	void checkForUpdates(bool display_message, bool force_check);
 	void refreshGameList(bool invalidate_cache, bool popup_on_error);
 	void cancelGameListRefresh();
+	void updateGameListBackground();
 	void reportInfo(const QString& title, const QString& message);
 	void reportError(const QString& title, const QString& message);
 	bool confirmMessage(const QString& title, const QString& message);
 	void onStatusMessage(const QString& message);
+	void reportStateLoadError(const QString& message, std::optional<s32> slot, bool backup);
+	void reportStateSaveError(const QString& message, std::optional<s32> slot);
 
 	void runOnUIThread(const std::function<void()>& func);
 	void requestReset();
@@ -135,7 +139,6 @@ private Q_SLOTS:
 	void displayResizeRequested(qint32 width, qint32 height);
 	void mouseModeRequested(bool relative_mode, bool hide_cursor);
 	void releaseRenderWindow();
-	void focusDisplayWidget();
 	void setupMouseMoveHandler();
 	void onGameListRefreshComplete();
 	void onGameListRefreshProgress(const QString& status, int current, int total);
