@@ -1,11 +1,11 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "usb-train.h"
 
 #include "common/Console.h"
 #include "Host.h"
-#include "IconsFontAwesome6.h"
+#include "IconsFontAwesome.h"
 #include "IconsPromptFont.h"
 #include "Input/InputManager.h"
 #include "StateWrapper.h"
@@ -208,6 +208,8 @@ namespace usb_pad
 			case MASTER_CONTROLLER:
 				s->power_notches = USB::GetConfigInt(si, s->port, TypeName(), "power_notches", 5);
 				s->brake_notches = USB::GetConfigInt(si, s->port, TypeName(), "brake_notches", 8);
+				break;
+			default:
 				break;
 		}
 	}

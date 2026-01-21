@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -67,7 +67,10 @@ void intBreakpoint(bool memcheck)
 {
 	const u32 pc = cpuRegs.pc;
  	if (CBreakPoints::CheckSkipFirst(BREAKPOINT_EE, pc) != 0)
+	{
+		CBreakPoints::ClearSkipFirst(BREAKPOINT_EE);
 		return;
+	}
 
 	if (!memcheck)
 	{
@@ -161,6 +164,8 @@ static void execI()
 		intBreakpoint(false);
 
 	intCheckMemcheck();
+
+	CBreakPoints::CommitClearSkipFirst(BREAKPOINT_EE);
 #endif
 
 	const u32 pc = cpuRegs.pc;

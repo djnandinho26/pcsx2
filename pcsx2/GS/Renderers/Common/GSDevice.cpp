@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/Common/GSDevice.h"
@@ -918,10 +918,15 @@ void GSDevice::Resize(int width, int height)
 	GSVector2i s = m_current->GetSize();
 	int multiplier = 1;
 
-	while (width > s.x || height > s.y)
+	if ((width > s.x || height > s.y))
 	{
-		s = m_current->GetSize() * GSVector2i(++multiplier);
+		while (width > s.x || height > s.y)
+		{
+			s = m_current->GetSize() * GSVector2i(++multiplier);
+		}
 	}
+	else
+		s = GSVector2i(width, height);
 
 	if (ResizeRenderTarget(&dTex, s.x, s.y, false, false))
 	{
