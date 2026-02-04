@@ -112,7 +112,7 @@ struct VS_OUTPUT
 
 struct PS_INPUT
 {
-	float4 p : SV_Position;
+	noperspective centroid float4 p : SV_Position;
 	float4 t : TEXCOORD0;
 	float4 ti : TEXCOORD2;
 #if VS_IIP != 0 || GS_IIP != 0 || PS_IIP != 0
@@ -139,8 +139,12 @@ struct PS_OUTPUT
 #endif
 #endif
 #endif
-#if PS_ZCLAMP || PS_ZFLOOR
-	float depth : SV_Depth;
+#if (PS_ZFLOOR || PS_ZCLAMP)
+	#if PS_HAS_CONSERVATIVE_DEPTH
+		float depth : SV_DepthLessEqual;
+	#else
+		float depth : SV_Depth;
+	#endif
 #endif
 };
 

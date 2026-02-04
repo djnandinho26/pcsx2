@@ -165,11 +165,12 @@ GSTexture* GSRendererHW::GetOutput(int i, float& scale, int& y_offset)
 
 	if (GSTextureCache::Target* rt = g_texture_cache->LookupDisplayTarget(TEX0, framebufferSize, GetTextureScaleFactor(), false))
 	{
+		const u32 bp_adj = (TEX0.TBP0 < rt->m_TEX0.TBP0 && rt->UnwrappedEndBlock() > GS_MAX_BLOCKS) ? (TEX0.TBP0 + GS_MAX_BLOCKS) : TEX0.TBP0;
 		rt->Update();
 		t = rt->m_texture;
 		scale = rt->m_scale;
 
-		const int delta = TEX0.TBP0 - rt->m_TEX0.TBP0;
+		const int delta = bp_adj - rt->m_TEX0.TBP0;
 		if (delta > 0 && curFramebuffer.FBW != 0)
 		{
 			const int pages = delta >> 5u;
@@ -2338,6 +2339,12 @@ void GSRendererHW::Draw()
 		return;
 	}
 
+	// Sometimes everything will get reset and it will draw a single black point in the top left corner,
+	// which can cause invalid targets to be created, so might as well skip it.
+	if (GSVector4i(m_vt.m_min.p.xyxy(m_vt.m_max.p)).eq(GSVector4i::zero()) && m_vt.m_eq.rgba == 0xffff && 
+		m_vt.m_max.c.rgba32() == 0 && m_draw_env->PRIM.PRIM == GS_POINTLIST && m_env.PRIM.PRIM != GS_POINTLIST)
+		return;
+
 	// Channel shuffles repeat lots of draws. Get out early if we can.
 	if (m_channel_shuffle)
 	{
@@ -2844,7 +2851,7 @@ void GSRendererHW::Draw()
 		const bool page_aligned = (m_r.w % pgs.y) == (pgs.y - 1) || (m_r.w % pgs.y) == 0;
 		const bool is_zero_color_clear = (GetConstantDirectWriteMemClearColor() == 0 && !preserve_rt_color && page_aligned);
 		const bool is_zero_depth_clear = (GetConstantDirectWriteMemClearDepth() == 0 && !preserve_depth && page_aligned);
-
+		bool gs_mem_cleared = false;
 		// If it's an invalid-sized draw, do the mem clear on the CPU, we don't want to create huge targets.
 		// If clearing to zero, don't bother creating the target. Games tend to clear more than they use, wasting VRAM/bandwidth.
 		if (is_zero_color_clear || is_zero_depth_clear || height_invalid)
@@ -2876,7 +2883,7 @@ void GSRendererHW::Draw()
 			{
 				g_texture_cache->InvalidateTemporaryZ();
 			}
-
+			gs_mem_cleared |= overwriting_whole_rt && overwriting_whole_ds && (!no_rt || !no_ds);
 			if (overwriting_whole_rt && overwriting_whole_ds &&
 				TryGSMemClear(no_rt, preserve_rt_color, is_zero_color_clear, rt_end_bp,
 					no_ds, preserve_depth, is_zero_depth_clear, ds_end_bp))
@@ -2904,6 +2911,27 @@ void GSRendererHW::Draw()
 
 				CleanupDraw(false);
 				return;
+			}
+		}
+
+		// If not a zero clear or the RT's aren't fully overwritten, we need to see if this is clearing for a future operation.
+		// So if the FBP or Z being cleared isn't getting used next frame, clear the actual GS memory.
+		if (!gs_mem_cleared)
+		{
+			const int get_next_ctx = m_env.PRIM.CTXT;
+			const GSDrawingContext& next_ctx = m_env.CTXT[get_next_ctx];
+			if ((!no_rt && next_ctx.FRAME.FBP != m_cached_ctx.FRAME.FBP) || (!no_ds && next_ctx.ZBUF.ZBP != m_cached_ctx.ZBUF.ZBP))
+			{
+				bool frame_masked = no_rt || (m_cached_ctx.FRAME.FBMSK & GSLocalMemory::m_psm[m_cached_ctx.FRAME.PSM].fmsk) || !IsOpaque() || !IsRTWritten();
+				const bool z_masked = no_ds || m_cached_ctx.ZBUF.ZMSK;
+
+				if (frame_masked && m_cached_ctx.FRAME.PSM == PSMCT32 && m_cached_ctx.FRAME.FBMSK == 0xFF000000u)
+				{
+					frame_masked = no_rt || !IsOpaque() || !IsRTWritten();
+				}
+
+				// Force clear of memory but don't invalidate anything.
+				TryGSMemClear(frame_masked, false, false, 0, z_masked, false, false, 0);
 			}
 		}
 	}
@@ -3818,7 +3846,6 @@ void GSRendererHW::Draw()
 
 						GL_CACHE("HW: RT in RT Z copy back draw %d z_vert_offset %d z_offset %d", s_n, z_vertical_offset, vertical_offset);
 						g_gs_device->StretchRect(g_texture_cache->GetTemporaryZ(), sRect, ds->m_texture, GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
-						g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 					}
 
 					g_texture_cache->InvalidateTemporaryZ();
@@ -3835,7 +3862,6 @@ void GSRendererHW::Draw()
 					dRect = dRect.min_u32(GSVector4i(ds->m_unscaled_size.x * ds->m_scale, ds->m_unscaled_size.y * ds->m_scale).xyxy());
 
 					g_gs_device->StretchRect(ds->m_texture, sRect, g_texture_cache->GetTemporaryZ(), GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
-					g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 					z_address_info.rect_since = GSVector4i::zero();
 					g_texture_cache->SetTemporaryZInfo(z_address_info);
 				}
@@ -3883,7 +3909,6 @@ void GSRendererHW::Draw()
 					if (m_cached_ctx.TEST.ZTST > ZTST_ALWAYS || !dRect.rintersect(GSVector4i(GSVector4(m_r) * ds->m_scale)).eq(dRect))
 					{
 						g_gs_device->StretchRect(ds->m_texture, sRect, tex, GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
-						g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 					}
 					g_texture_cache->SetTemporaryZ(tex);
 					g_texture_cache->SetTemporaryZInfo(ds->m_TEX0.TBP0, page_offset, rt_page_offset);
@@ -4495,7 +4520,6 @@ void GSRendererHW::Draw()
 					{
 						const GSVector4i dRect = GSVector4i(0, 0, g_texture_cache->GetTemporaryZ()->GetWidth(), g_texture_cache->GetTemporaryZ()->GetHeight());
 						g_gs_device->StretchRect(g_texture_cache->GetTemporaryZ(), GSVector4(0.0f, 0.0f, 1.0f, 1.0f), tex, GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
-						g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 						g_texture_cache->InvalidateTemporaryZ();
 						g_texture_cache->SetTemporaryZ(tex);
 					}
@@ -4802,7 +4826,6 @@ void GSRendererHW::Draw()
 
 					GL_CACHE("HW: RT in RT Z copy back draw %d z_vert_offset %d rt_vert_offset %d z_horz_offset %d rt_horz_offset %d", s_n, z_vertical_offset, vertical_offset, z_horizontal_offset, horizontal_offset);
 					g_gs_device->StretchRect(g_texture_cache->GetTemporaryZ(), sRect, ds->m_texture, GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
-					g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 				}
 				else if (m_temp_z_full_copy)
 				{
@@ -4815,7 +4838,6 @@ void GSRendererHW::Draw()
 
 					GL_CACHE("HW: RT in RT Z copy back draw %d z_vert_offset %d z_offset %d", s_n, z_vertical_offset, vertical_offset);
 					g_gs_device->StretchRect(g_texture_cache->GetTemporaryZ(), sRect, ds->m_texture, GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
-					g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 				}
 
 				m_temp_z_full_copy = false;
@@ -5167,7 +5189,9 @@ void GSRendererHW::EmulateZbuffer(const GSTextureCache::Target* ds)
 	m_conf.cb_vs.max_depth = GSVector2i(0xFFFFFFFF);
 	//ps_cb.MaxDepth = GSVector4(0.0f, 0.0f, 0.0f, 1.0f);
 	m_conf.ps.zclamp = 0;
-	m_conf.ps.zfloor = !m_cached_ctx.ZBUF.ZMSK;
+	m_conf.ps.zfloor = !m_vt.m_eq.z &&
+		(m_vt.m_primclass == GS_TRIANGLE_CLASS || m_vt.m_primclass == GS_LINE_CLASS) &&
+		(m_cached_ctx.DepthWrite() || (m_cached_ctx.DepthRead() && m_cached_ctx.TEST.ZTST == ZTST_GREATER));
 
 	if (clamp_z)
 	{
@@ -5880,6 +5904,7 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 	{
 		case AccBlendLevel::Maximum:
 			sw_blending |= true;
+			accumulation_blend &= (GSLocalMemory::m_psm[m_cached_ctx.FRAME.PSM].bpp == 32);
 			[[fallthrough]];
 		case AccBlendLevel::Full:
 			sw_blending |= m_conf.ps.blend_a != m_conf.ps.blend_b && alpha_c0_high_max_one;
@@ -7061,8 +7086,6 @@ __ri void GSRendererHW::HandleTextureHazards(const GSTextureCache::Target* rt, c
 
 	if (m_downscale_source)
 	{
-		g_perfmon.Put(GSPerfMon::TextureCopies, 1);
-
 		// Can't use box filtering on depth (yet), or fractional scales.
 		if (src_target->m_texture->IsDepthStencil() || std::floor(src_target->GetScale()) != src_target->GetScale())
 		{
@@ -7090,9 +7113,7 @@ __ri void GSRendererHW::HandleTextureHazards(const GSTextureCache::Target* rt, c
 	}
 	else
 	{
-		g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 		const GSVector4i offset = copy_range - GSVector4i(copy_dst_offset).xyxy();
-
 		// Adjust for bilinear, must be done after calculating offset.
 		copy_range.x -= 1;
 		copy_range.y -= 1;
@@ -8934,17 +8955,17 @@ bool GSRendererHW::TryGSMemClear(bool no_rt, bool preserve_rt, bool invalidate_r
 	if (m_r.width() < ((static_cast<int>(m_cached_ctx.FRAME.FBW) - 1) * 64))
 		return false;
 
-	if (!no_rt && !preserve_rt)
+	if (!no_rt && (!preserve_rt || (IsOpaque() && m_cached_ctx.FRAME.FBMSK)))
 	{
 		ClearGSLocalMemory(m_context->offset.fb, m_r, GetConstantDirectWriteMemClearColor());
 
-		if (invalidate_rt)
+		if (invalidate_rt && !preserve_rt)
 		{
 			g_texture_cache->InvalidateVideoMem(m_context->offset.fb, m_r, false);
 			g_texture_cache->InvalidateContainedTargets(
 				GSLocalMemory::GetStartBlockAddress(
 					m_cached_ctx.FRAME.Block(), m_cached_ctx.FRAME.FBW, m_cached_ctx.FRAME.PSM, m_r),
-				rt_end_bp, m_cached_ctx.FRAME.PSM, m_cached_ctx.FRAME.FBW);
+				rt_end_bp, m_cached_ctx.FRAME.PSM, m_cached_ctx.FRAME.FBW, m_cached_ctx.FRAME.FBMSK);
 
 			GSUploadQueue clear_queue;
 			clear_queue.draw = s_n;
@@ -8954,6 +8975,13 @@ bool GSRendererHW::TryGSMemClear(bool no_rt, bool preserve_rt, bool invalidate_r
 			clear_queue.blit.DPSM = m_cached_ctx.FRAME.PSM;
 			clear_queue.zero_clear = true;
 			m_draw_transfers.push_back(clear_queue);
+		}
+		else
+		{
+			g_texture_cache->InvalidateContainedTargets(
+				GSLocalMemory::GetStartBlockAddress(
+					m_cached_ctx.FRAME.Block(), m_cached_ctx.FRAME.FBW, m_cached_ctx.FRAME.PSM, m_r),
+				rt_end_bp, m_cached_ctx.FRAME.PSM, m_cached_ctx.FRAME.FBW, m_cached_ctx.FRAME.FBMSK, true);
 		}
 	}
 
@@ -8968,6 +8996,15 @@ bool GSRendererHW::TryGSMemClear(bool no_rt, bool preserve_rt, bool invalidate_r
 				GSLocalMemory::GetStartBlockAddress(
 					m_cached_ctx.ZBUF.Block(), m_cached_ctx.FRAME.FBW, m_cached_ctx.ZBUF.PSM, m_r),
 				ds_end_bp, m_cached_ctx.ZBUF.PSM, m_cached_ctx.FRAME.FBW);
+
+			GSUploadQueue clear_queue;
+			clear_queue.draw = s_n;
+			clear_queue.rect = m_r;
+			clear_queue.blit.DBP = m_cached_ctx.ZBUF.Block();
+			clear_queue.blit.DBW = m_cached_ctx.FRAME.FBW;
+			clear_queue.blit.DPSM = m_cached_ctx.ZBUF.PSM;
+			clear_queue.zero_clear = true;
+			m_draw_transfers.push_back(clear_queue);
 		}
 	}
 
@@ -8986,6 +9023,7 @@ void GSRendererHW::ClearGSLocalMemory(const GSOffset& off, const GSVector4i& r, 
 	const int right = r.right;
 	const int bottom = r.bottom;
 	int top = r.top;
+	u32 drawing_mask = GSLocalMemory::m_psm[psm].depth ? 0x0 : m_cached_ctx.FRAME.FBMSK;
 
 	// Process the page aligned region first, then fall back to anything which is not.
 	// Since pages are linear in memory, we can do it basically with a vector memset.
@@ -9001,22 +9039,34 @@ void GSRendererHW::ClearGSLocalMemory(const GSOffset& off, const GSVector4i& r, 
 
 		if (format == GSLocalMemory::PSM_FMT_32)
 		{
-			const GSVector4i vcolor = GSVector4i(vert_color);
+			const GSVector4i vcolor = GSVector4i(vert_color & ~drawing_mask);
 			const u32 iterations_per_page = (pages_wide * pixels_per_page) / 4;
+			const GSVector4i mask = GSVector4i(drawing_mask);
 			pxAssert((off.bp() & (GS_BLOCKS_PER_PAGE - 1)) == 0);
 			for (u32 current_page = off.bp() >> 5; top < page_aligned_bottom; top += pgs.y, current_page += fbw)
 			{
 				current_page &= (GS_MAX_PAGES - 1);
 				GSVector4i* ptr = reinterpret_cast<GSVector4i*>(m_mem.vm8() + current_page * GS_PAGE_SIZE);
 				GSVector4i* const ptr_end = ptr + iterations_per_page;
-				while (ptr != ptr_end)
-					*(ptr++) = vcolor;
+				if (drawing_mask)
+				{
+					while (ptr != ptr_end)
+					{
+						*ptr = (*ptr & mask) | vcolor;
+						ptr++;
+					}
+				}
+				else
+				{
+					while (ptr != ptr_end)
+						*(ptr++) = vcolor;
+				}
 			}
 		}
 		else if (format == GSLocalMemory::PSM_FMT_24)
 		{
-			const GSVector4i mask = GSVector4i::xff000000();
-			const GSVector4i vcolor = GSVector4i(vert_color & 0x00ffffffu);
+			const GSVector4i mask = GSVector4i::xff000000() | GSVector4i(drawing_mask);
+			const GSVector4i vcolor = GSVector4i((vert_color & 0x00ffffffu) & ~drawing_mask);
 			const u32 iterations_per_page = (pages_wide * pixels_per_page) / 4;
 			pxAssert((off.bp() & (GS_BLOCKS_PER_PAGE - 1)) == 0);
 			for (u32 current_page = off.bp() >> 5; top < page_aligned_bottom; top += pgs.y, current_page += fbw)
@@ -9035,7 +9085,10 @@ void GSRendererHW::ClearGSLocalMemory(const GSOffset& off, const GSVector4i& r, 
 		{
 			const u16 converted_color = ((vert_color >> 16) & 0x8000) | ((vert_color >> 9) & 0x7C00) |
 			                            ((vert_color >> 6) & 0x7E0) | ((vert_color >> 3) & 0x1F);
+			const u16 converted_mask = ((drawing_mask >> 16) & 0x8000) | ((drawing_mask >> 9) & 0x7C00) |
+			                           ((drawing_mask >> 6) & 0x7E0) | ((drawing_mask >> 3) & 0x1F);
 			const GSVector4i vcolor = GSVector4i::broadcast16(converted_color);
+			const GSVector4i mask = GSVector4i::broadcast16(converted_mask);
 			const u32 iterations_per_page = (pages_wide * pixels_per_page) / 8;
 			pxAssert((off.bp() & (GS_BLOCKS_PER_PAGE - 1)) == 0);
 			for (u32 current_page = off.bp() >> 5; top < page_aligned_bottom; top += pgs.y, current_page += fbw)
@@ -9043,14 +9096,27 @@ void GSRendererHW::ClearGSLocalMemory(const GSOffset& off, const GSVector4i& r, 
 				current_page &= (GS_MAX_PAGES - 1);
 				GSVector4i* ptr = reinterpret_cast<GSVector4i*>(m_mem.vm8() + current_page * GS_PAGE_SIZE);
 				GSVector4i* const ptr_end = ptr + iterations_per_page;
-				while (ptr != ptr_end)
-					*(ptr++) = vcolor;
+				if (converted_mask)
+				{
+					while (ptr != ptr_end)
+					{
+						*ptr = (*ptr & mask) | vcolor;
+						ptr++;
+					}
+				}
+				else
+				{
+					while (ptr != ptr_end)
+						*(ptr++) = vcolor;
+				}
 			}
 		}
 	}
 
 	if (format == GSLocalMemory::PSM_FMT_32)
 	{
+		const u32 mask = drawing_mask;
+		const u32 vcolor = vert_color & ~mask;
 		// Based on WritePixel32
 		u32* vm = m_mem.vm32();
 		for (int y = top; y < bottom; y++)
@@ -9058,25 +9124,28 @@ void GSRendererHW::ClearGSLocalMemory(const GSOffset& off, const GSVector4i& r, 
 			GSOffset::PAHelper pa = off.assertSizesMatch(GSLocalMemory::swizzle32).paMulti(0, y);
 
 			for (int x = left; x < right; x++)
-				vm[pa.value(x)] = vert_color;
+				vm[pa.value(x)] = vcolor | (vm[pa.value(x)] & mask);
 		}
 	}
 	else if (format == GSLocalMemory::PSM_FMT_24)
 	{
 		// Based on WritePixel24
 		u32* vm = m_mem.vm32();
-		const u32 write_color = vert_color & 0xffffffu;
+		const u32 mask = drawing_mask | 0xff000000u;
+		const u32 write_color = (vert_color & 0xffffffu) & ~mask;
 		for (int y = top; y < bottom; y++)
 		{
 			GSOffset::PAHelper pa = off.assertSizesMatch(GSLocalMemory::swizzle32).paMulti(0, y);
 
 			for (int x = left; x < right; x++)
-				vm[pa.value(x)] = (vm[pa.value(x)] & 0xff000000u) | write_color;
+				vm[pa.value(x)] = (vm[pa.value(x)] & mask) | write_color;
 		}
 	}
 	else if (format == GSLocalMemory::PSM_FMT_16)
 	{
-		const u16 converted_color = ((vert_color >> 16) & 0x8000) | ((vert_color >> 9) & 0x7C00) | ((vert_color >> 6) & 0x7E0) | ((vert_color >> 3) & 0x1F);
+		const u16 converted_mask = ((drawing_mask >> 16) & 0x8000) | ((drawing_mask >> 9) & 0x7C00) |
+		                           ((drawing_mask >> 6) & 0x7E0) | ((drawing_mask >> 3) & 0x1F);
+		const u16 converted_color = (((vert_color >> 16) & 0x8000) | ((vert_color >> 9) & 0x7C00) | ((vert_color >> 6) & 0x7E0) | ((vert_color >> 3) & 0x1F)) & ~converted_mask;
 
 		// Based on WritePixel16
 		u16* vm = m_mem.vm16();
@@ -9085,7 +9154,7 @@ void GSRendererHW::ClearGSLocalMemory(const GSOffset& off, const GSVector4i& r, 
 			GSOffset::PAHelper pa = off.assertSizesMatch(GSLocalMemory::swizzle16).paMulti(0, y);
 
 			for (int x = left; x < right; x++)
-				vm[pa.value(x)] = converted_color;
+				vm[pa.value(x)] = converted_color | (vm[pa.value(x)] & converted_mask);
 		}
 	}
 }
@@ -9151,11 +9220,7 @@ bool GSRendererHW::OI_BlitFMV(GSTextureCache::Target* _rt, GSTextureCache::Sourc
 				const GSVector4 sRect(m_vt.m_min.t.x / tw, m_vt.m_min.t.y / th, m_vt.m_max.t.x / tw, m_vt.m_max.t.y / th);
 				const GSVector4i r_full_new(0, 0, tw, th);
 				g_gs_device->StretchRect(tex->m_texture, sRect, rt, dRect, ShaderConvert::COPY, m_vt.IsRealLinear());
-				g_perfmon.Put(GSPerfMon::TextureCopies, 1);
-
 				g_gs_device->CopyRect(rt, tex->m_texture, r_full_new, 0, 0);
-				g_perfmon.Put(GSPerfMon::TextureCopies, 1);
-
 				g_gs_device->Recycle(rt);
 			}
 
