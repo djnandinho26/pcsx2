@@ -438,9 +438,9 @@ void GSvsync(u32 field, bool registers_written)
 	// Update this here because we need to check if the pending draw affects the current frame, so our regs need to be updated.
 	g_gs_renderer->PCRTCDisplays.SetVideoMode(g_gs_renderer->GetVideoMode());
 	g_gs_renderer->PCRTCDisplays.EnableDisplays(g_gs_renderer->m_regs->PMODE, g_gs_renderer->m_regs->SMODE2, g_gs_renderer->isReallyInterlaced());
-	g_gs_renderer->PCRTCDisplays.CheckSameSource();
 	g_gs_renderer->PCRTCDisplays.SetRects(0, g_gs_renderer->m_regs->DISP[0].DISPLAY, g_gs_renderer->m_regs->DISP[0].DISPFB);
 	g_gs_renderer->PCRTCDisplays.SetRects(1, g_gs_renderer->m_regs->DISP[1].DISPLAY, g_gs_renderer->m_regs->DISP[1].DISPFB);
+	g_gs_renderer->PCRTCDisplays.CheckSameSource();
 	g_gs_renderer->PCRTCDisplays.CalculateDisplayOffset(g_gs_renderer->m_scanmask_used);
 	g_gs_renderer->PCRTCDisplays.CalculateFramebufferOffset(g_gs_renderer->m_scanmask_used, g_gs_renderer->m_regs->DISP[0].DISPFB, g_gs_renderer->m_regs->DISP[1].DISPFB);
 
@@ -596,6 +596,14 @@ std::vector<GSAdapterInfo> GSGetAdapterInfo(GSRendererType renderer)
 			auto factory = D3D::CreateFactory(false);
 			if (factory)
 				ret = D3D::GetAdapterInfo(factory.get());
+		}
+		break;
+#endif
+
+#ifdef ENABLE_OPENGL
+		case GSRendererType::OGL:
+		{
+			ret = GSDeviceOGL::GetAdapterInfo();
 		}
 		break;
 #endif
@@ -775,6 +783,9 @@ void GSUpdateConfig(const Pcsx2Config::GSOptions& new_config)
 	// Handle OSD scale changes by pushing a window resize through.
 	if (new_config.OsdScale != old_config.OsdScale)
 		ImGuiManager::RequestScaleUpdate();
+
+	if (new_config.OsdFontPath != old_config.OsdFontPath)
+		ImGuiManager::ReloadFonts();
 
 	// Options which need a full teardown/recreate.
 	if (!GSConfig.RestartOptionsAreEqual(old_config))
@@ -1259,8 +1270,8 @@ BEGIN_HOTKEY_LIST(g_gs_hotkeys){"Screenshot", TRANSLATE_NOOP("Hotkeys", "Graphic
 				fmt::format(
 					TRANSLATE_FS("Hotkeys", "Deinterlace mode set to '{}'."), option_names[static_cast<s32>(new_mode)]),
 				Host::OSD_QUICK_DURATION);
-			EmuConfig.GS.InterlaceMode = new_mode;
 
+			EmuConfig.GS.InterlaceMode = new_mode;
 			MTGS::RunOnGSThread([new_mode]() { GSConfig.InterlaceMode = new_mode; });
 		}},
 	{"CycleTVShader", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle TV Shader"),
@@ -1284,10 +1295,34 @@ BEGIN_HOTKEY_LIST(g_gs_hotkeys){"Screenshot", TRANSLATE_NOOP("Hotkeys", "Graphic
 				fmt::format(
 					TRANSLATE_FS("Hotkeys", "TV shader set to '{}'."), option_names[new_shader]),
 				Host::OSD_QUICK_DURATION);
-			EmuConfig.GS.TVShader = new_shader;
 
+			EmuConfig.GS.TVShader = new_shader;
 			MTGS::RunOnGSThread([new_shader]() { GSConfig.TVShader = new_shader; });
 		}},
+		{"CycleBlendingAccuracy", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Cycle Blending Accuracy"),
+			[](s32 pressed) {
+				if (pressed)
+					return;
+
+				static constexpr std::array<const char*, static_cast<u8>(AccBlendLevel::MaxCount)> s_blending_option_names = {{
+					TRANSLATE_NOOP("Hotkeys", "Minimum"),
+					TRANSLATE_NOOP("Hotkeys", "Basic"),
+					TRANSLATE_NOOP("Hotkeys", "Medium"),
+					TRANSLATE_NOOP("Hotkeys", "High"),
+					TRANSLATE_NOOP("Hotkeys", "Full"),
+					TRANSLATE_NOOP("Hotkeys", "Maximum"),
+				}};
+
+				const AccBlendLevel new_blend_mode = static_cast<AccBlendLevel>(
+					(static_cast<u8>(EmuConfig.GS.AccurateBlendingUnit) + 1) % static_cast<u8>(AccBlendLevel::MaxCount));
+				Host::AddKeyedOSDMessage("CycleBlendingAccuracy",
+					fmt::format(
+						TRANSLATE_FS("Hotkeys", "Blending Accuracy set to {}."), s_blending_option_names[static_cast<u8>(new_blend_mode)]),
+					Host::OSD_QUICK_DURATION);
+
+				EmuConfig.GS.AccurateBlendingUnit = new_blend_mode;
+				MTGS::RunOnGSThread([new_blend_mode]() { GSConfig.AccurateBlendingUnit = new_blend_mode; });
+			}},
 	{"ToggleTextureDumping", TRANSLATE_NOOP("Hotkeys", "Graphics"), TRANSLATE_NOOP("Hotkeys", "Toggle Texture Dumping"),
 		[](s32 pressed) {
 			if (!pressed)

@@ -127,6 +127,8 @@ namespace VMManager
 	static void LoadCoreSettings(SettingsInterface& si);
 	static void ApplyCoreSettings();
 	static void LoadInputBindings(SettingsInterface& si, std::unique_lock<std::mutex>& lock);
+	static bool HasAnyBindingsForPad(const SettingsInterface& si, u32 port);
+	static void WarnAboutUnconfiguredController();
 	static void UpdateInhibitScreensaver(bool allow);
 	static void AccumulateSessionPlaytime();
 	static void ResetResumeTimestamp();
@@ -205,7 +207,7 @@ bool VMManager::PerformEarlyHardwareChecks(const char** error)
 {
 #define COMMON_DOWNLOAD_MESSAGE "PCSX2 builds can be downloaded from https://pcsx2.net/downloads/"
 
-#if defined(_M_X86)
+#if defined(ARCH_X86)
 	// On Windows, this gets called as a global object constructor, before any of our objects are constructed.
 	// So, we have to put it on the stack instead.
 	cpuinfo_initialize();
@@ -229,7 +231,7 @@ bool VMManager::PerformEarlyHardwareChecks(const char** error)
 		return false;
 	}
 #endif
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 	// Check page size. If it doesn't match, it is a fatal error.
 	const size_t runtime_host_page_size = HostSys::GetRuntimePageSize();
 	if (__pagesize != runtime_host_page_size)
@@ -683,6 +685,36 @@ void VMManager::LoadInputBindings(SettingsInterface& si, std::unique_lock<std::m
 	{
 		InputManager::ReloadBindings(si, si, si, false, false);
 	}
+}
+
+bool VMManager::HasAnyBindingsForPad(const SettingsInterface& si, u32 port)
+{
+	if (port >= Pad::NUM_CONTROLLER_PORTS)
+		return false;
+
+	const std::string section = Pad::GetConfigSection(port);
+	const Pad::ControllerInfo* info = Pad::GetConfigControllerType(si, section.c_str(), port);
+	if (!info || info->type == Pad::ControllerType::NotConnected)
+		return false;
+
+	for (const InputBindingInfo& binding : info->bindings)
+	{
+		if (!si.GetStringList(section.c_str(), binding.name).empty())
+			return true;
+	}
+
+	return false;
+}
+
+void VMManager::WarnAboutUnconfiguredController()
+{
+	std::unique_lock<std::mutex> lock = Host::GetSettingsLock();
+	SettingsInterface* si = Host::GetSettingsInterface();
+	if (!si || HasAnyBindingsForPad(*si, 0))
+		return;
+
+	Host::AddIconOSDMessage("ControllerNotConfigured", ICON_FA_GAMEPAD,
+		TRANSLATE_STR("VMManager", "Controller 1 has no input bindings configured."), Host::OSD_WARNING_DURATION);
 }
 
 void VMManager::ApplyGameFixes()
@@ -1468,7 +1500,13 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 	if (Achievements::IsHardcoreModeActive() && (!state_to_load.empty() || DebugInterface::getPauseOnEntry()))
 		return VMBootResult::PromptDisableHardcoreMode;
 
-	s_limiter_mode = LimiterModeType::Nominal;
+	if (boot_params.start_unlimited.value_or(false))
+		s_limiter_mode = LimiterModeType::Unlimited;
+	else if (boot_params.start_turbo.value_or(false))
+		s_limiter_mode = LimiterModeType::Turbo;
+	else
+		s_limiter_mode = LimiterModeType::Nominal;
+
 	s_target_speed = GetTargetSpeedForLimiterMode(s_limiter_mode);
 	s_use_vsync_for_timing = false;
 
@@ -1511,6 +1549,7 @@ VMBootResult VMManager::Initialize(const VMBootParameters& boot_params, Error* e
 		Error::SetString(error, TRANSLATE_STR("VMManager", "Failed to initialize PAD."));
 		return VMBootResult::StartupFailure;
 	}
+	WarnAboutUnconfiguredController();
 	ScopedGuard close_pad = &Pad::Shutdown;
 
 	Console.WriteLn("Initializing SIO2...");
@@ -2569,7 +2608,7 @@ void VMManager::LogCPUCapabilities()
 	LogUserPowerPlan();
 #endif
 
-#ifdef _M_X86
+#ifdef ARCH_X86
 	std::string extensions;
 	if (g_cpu.vectorISA >= ProcessorFeatures::VectorISA::AVX)
 		extensions += "AVX ";
@@ -2577,7 +2616,7 @@ void VMManager::LogCPUCapabilities()
 		extensions += "AVX2 ";
 	if (g_cpu.vectorISA >= ProcessorFeatures::VectorISA::AVX512F)
 		extensions += "AVX512F ";
-#ifdef _M_ARM64
+#ifdef ARCH_ARM64
 	if (cpuinfo_has_arm_neon())
 		extensions += "NEON ";
 #endif
@@ -2589,7 +2628,7 @@ void VMManager::LogCPUCapabilities()
 	Console.WriteLn();
 #endif
 
-#ifdef _M_ARM64
+#ifdef ARCH_ARM64
 	const size_t runtime_cache_line_size = HostSys::GetRuntimeCacheLineSize();
 	if (__cachelinesize != runtime_cache_line_size)
 	{
@@ -3222,6 +3261,11 @@ void VMManager::WarnAboutUnsafeSettings()
 			append(ICON_FA_IMAGES,
 				TRANSLATE_SV("VMManager", "Mipmapping is disabled. This may break rendering in some games."));
 		}
+		if (EmuConfig.GS.HWAccurateAlphaTest)
+		{
+			append(ICON_FA_IMAGES,
+				TRANSLATE_SV("VMManager", "Accurate Alpha Test is enabled, this may reduce performance."));
+		}
 		if (EmuConfig.GS.UseDebugDevice)
 		{
 			append(ICON_FA_BUG,
@@ -3289,7 +3333,7 @@ void VMManager::WarnAboutUnsafeSettings()
 	if (EmuConfig.Cpu.ExtraMemory)
 	{
 		append(ICON_PF_MICROCHIP,
-			TRANSLATE_SV("VMManager", "128MB RAM is enabled. Compatibility with some games may be affected."));
+			TRANSLATE_SV("VMManager", "Extended RAM is enabled. Compatibility with some games may be affected."));
 	}
 	if (!EmuConfig.EnableGameFixes)
 	{

@@ -50,6 +50,7 @@ else()
 	include(CheckLib)
 
 	if(UNIX AND NOT APPLE)
+		find_package(Fontconfig REQUIRED)
 		if(LINUX)
 			check_lib(LIBUDEV libudev libudev.h)
 		endif()
@@ -108,7 +109,7 @@ disable_compiler_warnings_for_target(speex)
 
 # Find the Qt components that we need.
 if(ENABLE_QT_UI)
-	find_package(Qt6 6.10.0 COMPONENTS CoreTools Core GuiTools Gui WidgetsTools Widgets LinguistTools REQUIRED)
+	find_package(Qt6 6.10.1 COMPONENTS CoreTools Core GuiTools Gui WidgetsTools Widgets LinguistTools REQUIRED)
 
 	if(NOT WIN32 AND NOT APPLE)
 		if (Qt6_VERSION VERSION_GREATER_EQUAL 6.10.0)
@@ -131,9 +132,9 @@ add_subdirectory(3rdparty/demangler EXCLUDE_FROM_ALL)
 add_subdirectory(3rdparty/ccc EXCLUDE_FROM_ALL)
 
 # Architecture-specific.
-if(_M_X86)
+if(ARCH_X86)
 	add_subdirectory(3rdparty/zydis EXCLUDE_FROM_ALL)
-elseif(_M_ARM64)
+elseif(ARCH_ARM64)
 	add_subdirectory(3rdparty/vixl EXCLUDE_FROM_ALL)
 endif()
 

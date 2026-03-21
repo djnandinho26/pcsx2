@@ -119,6 +119,7 @@ Q_SIGNALS:
 	void onResizeRenderWindowRequested(qint32 width, qint32 height);
 	void onReleaseRenderWindowRequested();
 	void onMouseModeRequested(bool relative_mode, bool hide_cursor);
+	void onMouseLockRequested(bool state);
 	void onFullscreenUIStateChange(bool running);
 
 	/// Called when the VM is starting initialization, but has not been completed yet.
@@ -273,6 +274,9 @@ namespace QtHost
 
 	/// Saves a game settings interface.
 	bool SaveGameSettings(SettingsInterface* sif, bool delete_if_empty);
+
+	/// Downloads the specified URL into memory.
+	std::optional<bool> DownloadFile(QWidget* parent, const QString& title, std::string url, std::vector<u8>* data);
 
 	/// Downloads the specified URL to the provided path.
 	bool DownloadFile(QWidget* parent, const QString& title, std::string url, const std::string& path);

@@ -101,7 +101,7 @@ void GSRendererHW::VSync(u32 field, bool registers_written, bool idle_frame)
 	{
 		// If it did draws very recently, we should keep the recent stuff in case it hasn't been preloaded/used yet.
 		// Rocky Legend does this with the main menu FMV's.
-		if (s_last_transfer_draw_n > (s_n - 5))
+		if ((s_n - s_last_transfer_draw_n) < 5)
 		{
 			for (auto iter = m_draw_transfers.rbegin(); iter != m_draw_transfers.rend(); iter++)
 			{
@@ -181,7 +181,7 @@ GSTexture* GSRendererHW::GetOutput(int i, float& scale, int& y_offset)
 
 		if (GSConfig.SaveFrame && GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
 		{
-			t->Save(GetDrawDumpPath("%05d_f%05lld_fr%d_%05x_%s.bmp", s_n, g_perfmon.GetFrame(), i, static_cast<int>(TEX0.TBP0), GSUtil::GetPSMName(TEX0.PSM)));
+			t->Save(GetDrawDumpPath("%05lld_f%05lld_fr%d_%05x_%s.bmp", s_n, g_perfmon.GetFrame(), i, static_cast<int>(TEX0.TBP0), GSUtil::GetPSMName(TEX0.PSM)));
 		}
 	}
 
@@ -207,7 +207,7 @@ GSTexture* GSRendererHW::GetFeedbackOutput(float& scale)
 	scale = rt->m_scale;
 
 	if (GSConfig.SaveFrame && GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
-		t->Save(GetDrawDumpPath("%05d_f%05lld_fr%d_%05x_%s.bmp", s_n, g_perfmon.GetFrame(), 3, static_cast<int>(TEX0.TBP0), GSUtil::GetPSMName(TEX0.PSM)));
+		t->Save(GetDrawDumpPath("%05lld_f%05lld_fr%d_%05x_%s.bmp", s_n, g_perfmon.GetFrame(), 3, static_cast<int>(TEX0.TBP0), GSUtil::GetPSMName(TEX0.PSM)));
 
 	return t;
 }
@@ -386,7 +386,7 @@ void GSRendererHW::ConvertSpriteTextureShuffle(u32& process_rg, u32& process_ba,
 	const bool rev_pos = v[prim].XYZ.X > v[prim + 1].XYZ.X;
 	const GSVertex& first_vert = rev_pos ? v[prim + 1] : v[prim];
 	const GSVertex& second_vert = rev_pos ? v[prim] : v[prim + 1];
-	const int pos = std::max(static_cast<int>(first_vert.XYZ.X) - static_cast<int>(o.OFX), 0) & 0xFF;
+	const int pos = (static_cast<int>(first_vert.XYZ.X) - static_cast<int>(o.OFX)) & 0xFF;
 
 	// Read texture is 8 to 16 pixels (same as above)
 	const float tw = static_cast<float>(1u << m_cached_ctx.TEX0.TW);
@@ -1920,7 +1920,7 @@ void GSRendererHW::Move()
 
 	const int w = m_env.TRXREG.RRW;
 	const int h = m_env.TRXREG.RRH;
-	GL_CACHE("HW: Starting Move! 0x%x W:%d F:%s => 0x%x W:%d F:%s (DIR %d%d), sPos(%d %d) dPos(%d %d) size(%d %d) draw %d",
+	GL_CACHE("HW: Starting Move! 0x%x W:%d F:%s => 0x%x W:%d F:%s (DIR %d%d), sPos(%d %d) dPos(%d %d) size(%d %d) draw %lld",
 		m_env.BITBLTBUF.SBP, m_env.BITBLTBUF.SBW, GSUtil::GetPSMName(m_env.BITBLTBUF.SPSM),
 		m_env.BITBLTBUF.DBP, m_env.BITBLTBUF.DBW, GSUtil::GetPSMName(m_env.BITBLTBUF.DPSM),
 		m_env.TRXPOS.DIRX, m_env.TRXPOS.DIRY,
@@ -2335,7 +2335,7 @@ void GSRendererHW::Draw()
 
 	if (IsBadFrame())
 	{
-		GL_INS("HW: Warning skipping a draw call (%d)", s_n);
+		GL_INS("HW: Warning skipping a draw call (%lld)", s_n);
 		return;
 	}
 
@@ -2384,7 +2384,7 @@ void GSRendererHW::Draw()
 		{
 			if (m_last_rt)
 			{
-				//DevCon.Warning("Skipped %d draw %d was abort %d", num_skipped_channel_shuffle_draws, s_n, (int)m_channel_shuffle_abort);
+				//DevCon.Warning("Skipped %d draw %lld was abort %d", num_skipped_channel_shuffle_draws, s_n, (int)m_channel_shuffle_abort);
 				// Some games like Tomb raider abort early, we're never going to know the real height, and the system doesn't work right for partials.
 				// But it's good enough for games like Hitman Blood Money which only shuffle part of the screen
 				const int width = std::max(static_cast<int>(m_last_rt->m_TEX0.TBW) * 64, 64);
@@ -2421,7 +2421,7 @@ void GSRendererHW::Draw()
 						{
 							const u64 frame = g_perfmon.GetFrame();
 
-							std::string s = GetDrawDumpPath("%05d_f%05lld_rt1_%05x_(%05x)_%s.bmp", s_n - 1, frame, m_last_channel_shuffle_fbp, m_last_rt->m_TEX0.TBP0, GSUtil::GetPSMName(m_cached_ctx.FRAME.PSM));
+							std::string s = GetDrawDumpPath("%05lld_f%05lld_rt1_%05x_(%05x)_%s.bmp", s_n - 1, frame, m_last_channel_shuffle_fbp, m_last_rt->m_TEX0.TBP0, GSUtil::GetPSMName(m_cached_ctx.FRAME.PSM));
 
 							m_last_rt->m_texture->Save(s);
 						}
@@ -2440,7 +2440,7 @@ void GSRendererHW::Draw()
 		}
 #ifdef ENABLE_OGL_DEBUG
 		if (num_skipped_channel_shuffle_draws > 0)
-			GL_CACHE("HW: Skipped %d channel shuffle draws ending at %d", num_skipped_channel_shuffle_draws, s_n);
+			GL_CACHE("HW: Skipped %d channel shuffle draws ending at %lld", num_skipped_channel_shuffle_draws, s_n);
 #endif
 		num_skipped_channel_shuffle_draws = 0;
 	}
@@ -2457,7 +2457,7 @@ void GSRendererHW::Draw()
 	m_channel_shuffle_finish = false;
 	m_channel_shuffle_src_valid = GSVector4i::zero();
 
-	GL_PUSH("HW: Draw %d (Context %u)", s_n, PRIM->CTXT);
+	GL_PUSH("HW: Draw %lld (Context %u)", s_n, PRIM->CTXT);
 	GL_INS("HW: FLUSH REASON: %s%s", GetFlushReasonString(m_state_flush_reason),
 		(m_state_flush_reason != GSFlushReason::CONTEXTCHANGE && m_dirty_gs_regs) ? " AND POSSIBLE CONTEXT CHANGE" :
 																					"");
@@ -2616,7 +2616,7 @@ void GSRendererHW::Draw()
 	// Draw is too small, just skip it.
 	if (m_r.rempty())
 	{
-		GL_INS("HW: Draw %d skipped due to having an empty rect");
+		GL_INS("HW: Draw %lld skipped due to having an empty rect", s_n);
 		return;
 	}
 
@@ -2820,7 +2820,7 @@ void GSRendererHW::Draw()
 												(fb_mask != 0 && (fb_mask >> 16) == (fb_mask & 0xFFFF) && ((fb_mask >> 8) & 0xFF) != (fb_mask & 0xFF))))
 		{
 
-			GL_CACHE("Clear 16bit with 32bit %d", s_n);
+			GL_CACHE("Clear 16bit with 32bit %lld", s_n);
 
 			// May have already been resized through the split draw checks.
 			if (!(m_cached_ctx.FRAME.PSM & 2))
@@ -3496,7 +3496,7 @@ void GSRendererHW::Draw()
 				const u32 new_width = std::max(new_size.x, ds->m_unscaled_size.x);
 				const u32 new_height = std::max(new_size.y, ds->m_unscaled_size.y);
 
-				//DevCon.Warning("HW: Resizing texture %d x %d draw %d", ds->m_unscaled_size.x, new_height, s_n);
+				//DevCon.Warning("HW: Resizing texture %d x %d draw %lld", ds->m_unscaled_size.x, new_height, s_n);
 				ds->ResizeTexture(new_width, new_height);
 			}
 			else if ((IsPageCopy() || is_possible_mem_clear) && m_r.width() <= zbuf_psm.pgs.x && m_r.height() <= zbuf_psm.pgs.y)
@@ -3793,7 +3793,7 @@ void GSRendererHW::Draw()
 				const u32 new_width = std::max(new_size.x, rt->m_unscaled_size.x);
 				const u32 new_height = std::max(new_size.y, rt->m_unscaled_size.y);
 
-				//DevCon.Warning("HW: Resizing texture %d x %d draw %d", rt->m_unscaled_size.x, new_height, s_n);
+				//DevCon.Warning("HW: Resizing texture %d x %d draw %lld", rt->m_unscaled_size.x, new_height, s_n);
 				rt->ResizeTexture(new_width, new_height);
 			}
 			else if ((IsPageCopy() || is_possible_mem_clear) && m_r.width() <= frame_psm.pgs.x && m_r.height() <= frame_psm.pgs.y)
@@ -3844,7 +3844,7 @@ void GSRendererHW::Draw()
 						const GSVector4 sRect = GSVector4(((ds->m_valid.x + horizontal_offset) * ds->m_scale) / static_cast<float>(g_texture_cache->GetTemporaryZ()->GetWidth()), static_cast<float>((ds->m_valid.y + vertical_offset) * ds->m_scale) / static_cast<float>(g_texture_cache->GetTemporaryZ()->GetHeight()), (((ds->m_valid.z + horizontal_offset) + (1.0f / ds->m_scale)) * ds->m_scale) / static_cast<float>(g_texture_cache->GetTemporaryZ()->GetWidth()),
 							static_cast<float>((ds->m_valid.w + vertical_offset + (1.0f / ds->m_scale)) * ds->m_scale) / static_cast<float>(g_texture_cache->GetTemporaryZ()->GetHeight()));
 
-						GL_CACHE("HW: RT in RT Z copy back draw %d z_vert_offset %d z_offset %d", s_n, z_vertical_offset, vertical_offset);
+						GL_CACHE("HW: RT in RT Z copy back draw %lld z_vert_offset %d z_offset %d", s_n, z_vertical_offset, vertical_offset);
 						g_gs_device->StretchRect(g_texture_cache->GetTemporaryZ(), sRect, ds->m_texture, GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
 					}
 
@@ -3854,7 +3854,7 @@ void GSRendererHW::Draw()
 				}
 				else if (!m_r.rintersect(z_address_info.rect_since).rempty() && m_cached_ctx.TEST.ZTST > ZTST_ALWAYS)
 				{
-					GL_CACHE("HW: RT in RT Updating Z copy on draw %d z_offset %d", s_n, z_address_info.offset);
+					GL_CACHE("HW: RT in RT Updating Z copy on draw %lld z_offset %d", s_n, z_address_info.offset);
 					GSVector4 sRect = GSVector4(z_address_info.rect_since.x / static_cast<float>(ds->m_unscaled_size.x), z_address_info.rect_since.y / static_cast<float>(ds->m_unscaled_size.y), (z_address_info.rect_since.z + (1.0f / ds->m_scale)) / static_cast<float>(ds->m_unscaled_size.x), (z_address_info.rect_since.w + (1.0f / ds->m_scale)) / static_cast<float>(ds->m_unscaled_size.y));
 					GSVector4i dRect = GSVector4i((old_z_horizontal_offset + z_address_info.rect_since.x) * ds->m_scale, (old_z_vertical_offset + z_address_info.rect_since.y) * ds->m_scale, (old_z_horizontal_offset + z_address_info.rect_since.z + (1.0f / ds->m_scale)) * ds->m_scale, (old_z_vertical_offset + z_address_info.rect_since.w + (1.0f / ds->m_scale)) * ds->m_scale);
 
@@ -3904,7 +3904,7 @@ void GSRendererHW::Draw()
 					sRect.z = std::min(sRect.z, sRect.x + ((1.0f * ds->m_scale) + (static_cast<float>(m_cached_ctx.FRAME.FBW * 64)) / static_cast<float>(ds->m_unscaled_size.x)));
 					dRect.z = std::min(dRect.z, dRect.x + static_cast<int>(1 * ds->m_scale) + static_cast<int>(static_cast<float>(m_cached_ctx.FRAME.FBW * 64) * ds->m_scale));
 
-					GL_CACHE("HW: RT in RT Z copy on draw %d z_vert_offset %d", s_n, page_offset);
+					GL_CACHE("HW: RT in RT Z copy on draw %lld z_vert_offset %d", s_n, page_offset);
 
 					if (m_cached_ctx.TEST.ZTST > ZTST_ALWAYS || !dRect.rintersect(GSVector4i(GSVector4(m_r) * ds->m_scale)).eq(dRect))
 					{
@@ -4657,7 +4657,7 @@ void GSRendererHW::Draw()
 
 		if (GSConfig.SaveTexture && src)
 		{
-			s = GetDrawDumpPath("%05d_f%05lld_itex_%s_%05x(%05x)_%s_%d%d_%02x_%02x_%02x_%02x.dds",
+			s = GetDrawDumpPath("%05lld_f%05lld_itex_%s_%05x(%05x)_%s_%d%d_%02x_%02x_%02x_%02x.dds",
 				s_n, frame, (src->m_from_target ? "tgt" : "gs"), static_cast<int>(m_cached_ctx.TEX0.TBP0), (src->m_from_target ? src->m_from_target->m_TEX0.TBP0 : src->m_TEX0.TBP0), GSUtil::GetPSMName(m_cached_ctx.TEX0.PSM),
 				static_cast<int>(m_cached_ctx.CLAMP.WMS), static_cast<int>(m_cached_ctx.CLAMP.WMT),
 				static_cast<int>(m_cached_ctx.CLAMP.MINU), static_cast<int>(m_cached_ctx.CLAMP.MAXU),
@@ -4667,7 +4667,7 @@ void GSRendererHW::Draw()
 
 			if (src->m_palette)
 			{
-				s = GetDrawDumpPath("%05d_f%05lld_itpx_%05x_%s.dds", s_n, frame, m_cached_ctx.TEX0.CBP, GSUtil::GetPSMName(m_cached_ctx.TEX0.CPSM));
+				s = GetDrawDumpPath("%05lld_f%05lld_itpx_%05x_%s.dds", s_n, frame, m_cached_ctx.TEX0.CBP, GSUtil::GetPSMName(m_cached_ctx.TEX0.CPSM));
 
 				src->m_palette->Save(s);
 			}
@@ -4675,7 +4675,7 @@ void GSRendererHW::Draw()
 
 		if (rt && GSConfig.SaveRT)
 		{
-			s = GetDrawDumpPath("%05d_f%05lld_rt0_%05x_(%05x)_%s.bmp", s_n, frame, m_cached_ctx.FRAME.Block(), rt->m_TEX0.TBP0, GSUtil::GetPSMName(m_cached_ctx.FRAME.PSM));
+			s = GetDrawDumpPath("%05lld_f%05lld_rt0_%05x_(%05x)_%s.bmp", s_n, frame, m_cached_ctx.FRAME.Block(), rt->m_TEX0.TBP0, GSUtil::GetPSMName(m_cached_ctx.FRAME.PSM));
 
 			if (rt->m_texture)
 				rt->m_texture->Save(s);
@@ -4683,7 +4683,7 @@ void GSRendererHW::Draw()
 
 		if (ds && GSConfig.SaveDepth)
 		{
-			s = GetDrawDumpPath("%05d_f%05lld_rz0_%05x_(%05x)_%s.bmp", s_n, frame, m_cached_ctx.ZBUF.Block(), ds->m_TEX0.TBP0, GSUtil::GetPSMName(m_cached_ctx.ZBUF.PSM));
+			s = GetDrawDumpPath("%05lld_f%05lld_rz0_%05x_(%05x)_%s.bmp", s_n, frame, m_cached_ctx.ZBUF.Block(), ds->m_TEX0.TBP0, GSUtil::GetPSMName(m_cached_ctx.ZBUF.PSM));
 
 			if (m_using_temp_z)
 				g_texture_cache->GetTemporaryZ()->Save(s);
@@ -4694,14 +4694,14 @@ void GSRendererHW::Draw()
 
 	if (m_oi && !m_oi(*this, rt ? rt->m_texture : nullptr, ds ? ds->m_texture : nullptr, src))
 	{
-		GL_INS("HW: Warning skipping a draw call (%d)", s_n);
+		GL_INS("HW: Warning skipping a draw call (%lld)", s_n);
 		CleanupDraw(true);
 		return;
 	}
 
 	if (!OI_BlitFMV(rt, src, m_r))
 	{
-		GL_INS("HW: Warning skipping a draw call (%d)", s_n);
+		GL_INS("HW: Warning skipping a draw call (%lld)", s_n);
 		CleanupDraw(true);
 		return;
 	}
@@ -4824,7 +4824,7 @@ void GSRendererHW::Draw()
 						((real_rect.z + (1.0f / ds->m_scale)) * ds->m_scale) / static_cast<float>(g_texture_cache->GetTemporaryZ()->GetWidth()),
 						static_cast<float>((real_rect.w + (1.0f / ds->m_scale)) * ds->m_scale) / static_cast<float>(g_texture_cache->GetTemporaryZ()->GetHeight()));
 
-					GL_CACHE("HW: RT in RT Z copy back draw %d z_vert_offset %d rt_vert_offset %d z_horz_offset %d rt_horz_offset %d", s_n, z_vertical_offset, vertical_offset, z_horizontal_offset, horizontal_offset);
+					GL_CACHE("HW: RT in RT Z copy back draw %lld z_vert_offset %d rt_vert_offset %d z_horz_offset %d rt_horz_offset %d", s_n, z_vertical_offset, vertical_offset, z_horizontal_offset, horizontal_offset);
 					g_gs_device->StretchRect(g_texture_cache->GetTemporaryZ(), sRect, ds->m_texture, GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
 				}
 				else if (m_temp_z_full_copy)
@@ -4836,7 +4836,7 @@ void GSRendererHW::Draw()
 						(((ds->m_valid.z + horizontal_offset) + (1.0f / ds->m_scale)) * ds->m_scale) / static_cast<float>(g_texture_cache->GetTemporaryZ()->GetWidth()),
 						static_cast<float>((ds->m_valid.w + vertical_offset + (1.0f / ds->m_scale)) * ds->m_scale) / static_cast<float>(g_texture_cache->GetTemporaryZ()->GetHeight()));
 
-					GL_CACHE("HW: RT in RT Z copy back draw %d z_vert_offset %d z_offset %d", s_n, z_vertical_offset, vertical_offset);
+					GL_CACHE("HW: RT in RT Z copy back draw %lld z_vert_offset %d z_offset %d", s_n, z_vertical_offset, vertical_offset);
 					g_gs_device->StretchRect(g_texture_cache->GetTemporaryZ(), sRect, ds->m_texture, GSVector4(dRect), ShaderConvert::DEPTH_COPY, false);
 				}
 
@@ -4876,14 +4876,14 @@ void GSRendererHW::Draw()
 
 		if (rt && GSConfig.SaveRT && !m_last_rt)
 		{
-			s = GetDrawDumpPath("%05d_f%05lld_rt1_%05x_(%05x)_%s.bmp", s_n, frame, m_cached_ctx.FRAME.Block(), rt->m_TEX0.TBP0, GSUtil::GetPSMName(m_cached_ctx.FRAME.PSM));
+			s = GetDrawDumpPath("%05lld_f%05lld_rt1_%05x_(%05x)_%s.bmp", s_n, frame, m_cached_ctx.FRAME.Block(), rt->m_TEX0.TBP0, GSUtil::GetPSMName(m_cached_ctx.FRAME.PSM));
 
 			rt->m_texture->Save(s);
 		}
 
 		if (ds && GSConfig.SaveDepth)
 		{
-			s = GetDrawDumpPath("%05d_f%05lld_rz1_%05x_%s.bmp", s_n, frame, m_cached_ctx.ZBUF.Block(), GSUtil::GetPSMName(m_cached_ctx.ZBUF.PSM));
+			s = GetDrawDumpPath("%05lld_f%05lld_rz1_%05x_%s.bmp", s_n, frame, m_cached_ctx.ZBUF.Block(), GSUtil::GetPSMName(m_cached_ctx.ZBUF.PSM));
 
 			if (m_using_temp_z)
 				g_texture_cache->GetTemporaryZ()->Save(s);
@@ -4900,6 +4900,9 @@ void GSRendererHW::Draw()
 
 	if ((fm & fm_mask) != fm_mask && !no_rt)
 	{
+		if (m_mem.m_clut.GetGPUTexture() && m_mem.m_clut.GetGPUTexture() == rt->m_texture)
+			m_mem.m_clut.SetGPUTextureDirty(rt->m_last_draw, rt->m_texture);
+
 		g_texture_cache->InvalidateVideoMem(context->offset.fb, real_rect, false);
 
 		// Remove overwritten Zs at the FBP.
@@ -5174,7 +5177,15 @@ void GSRendererHW::EmulateZbuffer(const GSTextureCache::Target* ds)
 	{
 		m_conf.depth.ztst = m_cached_ctx.TEST.ZTST;
 		// AA1: Z is not written on lines since coverage is always less than 0x80.
-		m_conf.depth.zwe = (m_cached_ctx.ZBUF.ZMSK || (PRIM->AA1 && m_vt.m_primclass == GS_LINE_CLASS)) ? 0 : 1;
+		if (m_cached_ctx.ZBUF.ZMSK || (PRIM->AA1 && m_vt.m_primclass == GS_LINE_CLASS))
+		{
+			m_conf.depth.zwe = false;
+			m_cached_ctx.ZBUF.ZMSK = true;
+		}
+		else
+		{
+			m_conf.depth.zwe = true;
+		}
 	}
 	else
 	{
@@ -5184,27 +5195,37 @@ void GSRendererHW::EmulateZbuffer(const GSTextureCache::Target* ds)
 	// On the real GS we appear to do clamping on the max z value the format allows.
 	// Clamping is done after rasterization.
 	const u32 max_z = 0xFFFFFFFF >> (GSLocalMemory::m_psm[m_cached_ctx.ZBUF.PSM].fmt * 8);
-	const bool clamp_z = static_cast<u32>(GSVector4i(m_vt.m_max.p).z) > max_z;
+	const bool large_z = static_cast<u32>(GSVector4i(m_vt.m_max.p).z) > max_z;
+
+	// No interpolation for flat Z so we can make some optimizations.
+	const bool flat_z = m_vt.m_eq.z || m_vt.m_primclass == GS_POINT_CLASS || m_vt.m_primclass == GS_SPRITE_CLASS;
 
 	m_conf.cb_vs.max_depth = GSVector2i(0xFFFFFFFF);
-	//ps_cb.MaxDepth = GSVector4(0.0f, 0.0f, 0.0f, 1.0f);
-	m_conf.ps.zclamp = 0;
-	m_conf.ps.zfloor = !m_vt.m_eq.z &&
-		(m_vt.m_primclass == GS_TRIANGLE_CLASS || m_vt.m_primclass == GS_LINE_CLASS) &&
+	m_conf.cb_ps.TA_MaxDepth_Af.z = 0.0f;
+	m_conf.ps.zclamp = false;
+
+	// Even when Z is read-only, Z floor must be enabled with ZTST_GREATER since otherwise there
+	// can be false passing if the incoming Z is not floored when the buffer value is floored.
+	m_conf.ps.zfloor = !flat_z &&
 		(m_cached_ctx.DepthWrite() || (m_cached_ctx.DepthRead() && m_cached_ctx.TEST.ZTST == ZTST_GREATER));
 
-	if (clamp_z)
+	if (m_cached_ctx.DepthWrite() && large_z)
 	{
-		if (m_vt.m_primclass == GS_SPRITE_CLASS || m_vt.m_primclass == GS_POINT_CLASS)
+		if (flat_z)
 		{
+			// Clamp in vertex shader.
 			m_conf.cb_vs.max_depth = GSVector2i(max_z);
 		}
-		else if (!m_cached_ctx.ZBUF.ZMSK)
+		else
 		{
+			// Clamp in pixel shader.
 			m_conf.cb_ps.TA_MaxDepth_Af.z = static_cast<float>(max_z) * 0x1p-32f;
-			m_conf.ps.zclamp = 1;
+			m_conf.ps.zclamp = true;
 		}
 	}
+
+	// Enables writing to depth (e.g. SV_Depth or gl_FragDepth) in the pixel shader.
+	m_conf.ps.zwrite = m_conf.ps.zfloor || m_conf.ps.zclamp;
 }
 
 void GSRendererHW::EmulateTextureShuffleAndFbmask(GSTextureCache::Target* rt, GSTextureCache::Source* tex)
@@ -5613,7 +5634,7 @@ __ri u32 GSRendererHW::EmulateChannelShuffle(GSTextureCache::Target* src, bool t
 		{
 			const bool req_offset = (m_cached_ctx.CLAMP.WMS != 3 || (m_cached_ctx.CLAMP.MAXU & ~0xF) == 0) &&
 			                        (m_cached_ctx.CLAMP.WMT != 3 || (m_cached_ctx.CLAMP.MAXV & ~0x3) == 0);
-			//DevCon.Warning("HW: Draw %d offset %d", s_n, frame_page_offset);
+			//DevCon.Warning("HW: Draw %lld offset %d", s_n, frame_page_offset);
 			// Offset the frame but clear the draw offset
 			if (req_offset)
 				m_cached_ctx.FRAME.FBP += frame_page_offset;
@@ -5677,7 +5698,6 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 		if (PABE_skip || !(NeedsBlending() || AA1))
 		{
 			m_conf.blend = {};
-			m_conf.ps.no_color1 = true;
 
 			// TODO: Find games that may benefit from adding full coverage on RTA Scale when we're overwriting the whole target.
 
@@ -5929,13 +5949,15 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 			accumulation_blend &= !prefer_sw_blend;
 			// Enable sw blending for barriers.
 			sw_blending |= blend_requires_barrier || prefer_sw_blend;
-			// Enable sw blending for free blending.
+			// Enable sw blending for free blending (non recursive, accumulation).
 			sw_blending |= free_blend;
 			// Do not run BLEND MIX if sw blending is already present, it's less accurate.
 			blend_mix &= !sw_blending;
 			sw_blending |= blend_mix;
 			[[fallthrough]];
 		case AccBlendLevel::Minimum:
+			// Enable sw blending for non recursive mode.
+			sw_blending |= blend_non_recursive;
 			break;
 	}
 
@@ -5950,6 +5972,17 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 			accumulation_blend = false;
 			blend_mix = false;
 		}
+	}
+
+	if (m_conf.alpha_test == GSHWDrawConfig::AlphaTestMode::FEEDBACK &&
+		features.depth_feedback == GSDevice::DepthFeedbackSupport::DepthAsRT)
+	{
+		// If we are doing feedback alpha test with a second RT we must use SW blending to avoid
+		// mixing dual source blending with multiple render targets.
+		sw_blending = true;
+		color_dest_blend = false;
+		accumulation_blend = false;
+		blend_mix = false;
 	}
 
 	// Color clip
@@ -6072,7 +6105,6 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 	{
 		// Blend output will be Cd, disable hw/sw blending.
 		m_conf.blend = {};
-		m_conf.ps.no_color1 = true;
 		m_conf.ps.blend_a = m_conf.ps.blend_b = m_conf.ps.blend_c = m_conf.ps.blend_d = 0;
 		sw_blending = false; // DATE_PRIMID
 
@@ -6144,7 +6176,7 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 			}
 
 			// Dual source output not needed (accumulation blend replaces it with ONE).
-			m_conf.ps.no_color1 = (m_conf.ps.pabe == 0);
+			m_conf.ps.no_color1 &= (m_conf.ps.pabe == 0);
 		}
 		else if (blend_mix)
 		{
@@ -6197,8 +6229,8 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 				m_conf.ps.blend_d = 0;
 			}
 
-			// Elide DSB colour output if not used by dest.
-			m_conf.ps.no_color1 = !GSDevice::IsDualSourceBlendFactor(blend.dst);
+			// Elide DSB colour output if not used by dest or alpha test.
+			m_conf.ps.no_color1 &= !GSDevice::IsDualSourceBlendFactor(blend.dst);
 
 			// For mixed blend, the source blend is done in the shader (so we use CONST_ONE as a factor).
 			m_conf.blend = {true, GSDevice::CONST_ONE, blend.dst, blend.op, GSDevice::CONST_ONE, GSDevice::CONST_ZERO, m_conf.ps.blend_c == 2, AFIX};
@@ -6208,7 +6240,6 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 		{
 			// Disable HW blending
 			m_conf.blend = {};
-			m_conf.ps.no_color1 = true;
 
 			// No need to set a_masked bit for blend_ad_alpha_masked case
 			const bool blend_non_recursive_one_barrier = blend_non_recursive && blend_ad_alpha_masked;
@@ -6416,8 +6447,8 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, const boo
 		m_conf.blend = {true, blend.src, blend.dst, blend.op, src_factor_alpha, dst_factor_alpha, m_conf.ps.blend_c == 2, AFIX};
 
 		// Remove second color output when unused. Works around bugs in some drivers (e.g. Intel).
-		m_conf.ps.no_color1 = !GSDevice::IsDualSourceBlendFactor(m_conf.blend.src_factor) &&
-		                      !GSDevice::IsDualSourceBlendFactor(m_conf.blend.dst_factor);
+		m_conf.ps.no_color1 &= !GSDevice::IsDualSourceBlendFactor(m_conf.blend.src_factor) &&
+		                       !GSDevice::IsDualSourceBlendFactor(m_conf.blend.dst_factor);
 	}
 
 	// Notify the shader that it needs to invert rounding
@@ -7262,49 +7293,397 @@ bool GSRendererHW::CanUseTexIsFB(const GSTextureCache::Target* rt, const GSTextu
 	return false;
 }
 
-void GSRendererHW::EmulateATST(float& AREF, GSHWDrawConfig::PSSelector& ps, bool pass_2)
+void GSRendererHW::GetAlphaTestConfigPS(const u32 atst, const u8 aref, const bool invert_test, u32& ps_atst_out, float& aref_out)
 {
-	static const u32 inverted_atst[] = {ATST_ALWAYS, ATST_NEVER, ATST_GEQUAL, ATST_GREATER, ATST_NOTEQUAL, ATST_LESS, ATST_LEQUAL, ATST_EQUAL};
+	static const u32 inverted_atst[] = {
+		ATST_ALWAYS,
+		ATST_NEVER,
+		ATST_GEQUAL,
+		ATST_GREATER,
+		ATST_NOTEQUAL,
+		ATST_LESS,
+		ATST_LEQUAL,
+		ATST_EQUAL
+	};
 
-	if (!m_cached_ctx.TEST.ATE)
-		return;
+	constexpr float small_val = 0x100p-23f;
 
-	// Check for pass 2, otherwise do pass 1.
-	const int atst = pass_2 ? inverted_atst[m_cached_ctx.TEST.ATST] : m_cached_ctx.TEST.ATST;
-	const float aref = static_cast<float>(m_cached_ctx.TEST.AREF);
-
-	switch (atst)
+	switch (invert_test ? inverted_atst[atst] : atst)
 	{
 		case ATST_LESS:
-			AREF = aref - 0.1f;
-			ps.atst = 1;
+			aref_out = static_cast<float>(aref) - small_val;
+			ps_atst_out = GSHWDrawConfig::PS_ATST_LEQUAL;
 			break;
 		case ATST_LEQUAL:
-			AREF = aref - 0.1f + 1.0f;
-			ps.atst = 1;
+			aref_out = static_cast<float>(aref) - small_val + 1.0f;
+			ps_atst_out = GSHWDrawConfig::PS_ATST_LEQUAL;
 			break;
 		case ATST_GEQUAL:
-			AREF = aref - 0.1f;
-			ps.atst = 2;
+			aref_out = static_cast<float>(aref) - small_val;
+			ps_atst_out = GSHWDrawConfig::PS_ATST_GEQUAL;
 			break;
 		case ATST_GREATER:
-			AREF = aref - 0.1f + 1.0f;
-			ps.atst = 2;
+			aref_out = static_cast<float>(aref) - small_val + 1.0f;
+			ps_atst_out = GSHWDrawConfig::PS_ATST_GEQUAL;
 			break;
 		case ATST_EQUAL:
-			AREF = aref;
-			ps.atst = 3;
+			aref_out = static_cast<float>(aref);
+			ps_atst_out = GSHWDrawConfig::PS_ATST_EQUAL;
 			break;
 		case ATST_NOTEQUAL:
-			AREF = aref;
-			ps.atst = 4;
+			aref_out = static_cast<float>(aref);
+			ps_atst_out = GSHWDrawConfig::PS_ATST_NOTEQUAL;
 			break;
-		case ATST_NEVER: // Draw won't be done so no need to implement it in shader
+		case ATST_NEVER:
 		case ATST_ALWAYS:
 		default:
-			ps.atst = 0;
+			ps_atst_out = GSHWDrawConfig::PS_ATST_NONE;
 			break;
 	}
+}
+
+void GSRendererHW::EmulateAlphaTest(const bool& DATE, bool& DATE_BARRIER, bool& DATE_one, bool& DATE_PRIMID)
+{
+	const GSDevice::FeatureSupport& features = g_gs_device->Features();
+
+	if (!m_cached_ctx.TEST.ATE)
+	{
+		GL_INS("HW: Alpha test disabled");
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::NONE;
+		return;
+	}
+
+	GL_PUSH("HW: Alpha test config (1)");
+
+	// Temp pixel shader constants for the setup.
+	u32 ps_atst;
+	float ps_aref;
+
+	u32 atst = m_cached_ctx.TEST.ATST;
+	u32 afail = m_cached_ctx.TEST.GetAFAIL(m_cached_ctx.FRAME.PSM);
+	u8 aref = m_cached_ctx.TEST.AREF;
+	const bool zwe = m_cached_ctx.DepthWrite();
+
+	// First make some simplifications.
+	if (afail == AFAIL_RGB_ONLY && !m_conf.colormask.wa)
+		afail = AFAIL_FB_ONLY;
+
+	if (!zwe && !m_conf.colormask.wrgba)
+		atst = ATST_NEVER;
+
+	if ((afail == AFAIL_FB_ONLY && !zwe) ||
+		(afail == AFAIL_RGB_ONLY && !m_conf.colormask.wa && !zwe) ||
+		(afail == AFAIL_ZB_ONLY && !m_conf.colormask.wrgba))
+	{
+		// Failing alpha test is a NOP.
+		atst = ATST_ALWAYS;
+	}
+
+	if ((afail == AFAIL_FB_ONLY && !m_conf.colormask.wrgba) ||
+		(afail == AFAIL_RGB_ONLY && (!(m_conf.colormask.wrgba & 7))) ||
+		(afail == AFAIL_ZB_ONLY && !zwe))
+	{
+		// Failing alpha test discards both color/depth.
+		afail = AFAIL_KEEP;
+	}
+
+	m_cached_ctx.TEST.ATST = atst;
+	m_cached_ctx.TEST.AFAIL = afail;
+	GL_INS("Using: ATST = %s, AFAIL = %s", GSUtil::GetATSTName(atst), GSUtil::GetAFAILName(afail));
+
+	if (atst == ATST_ALWAYS)
+	{
+		GL_INS("Alpha test: ALWAYS (disable)");
+		m_cached_ctx.TEST.ATE = false;
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::NONE;
+		return;
+	}
+
+	if (atst == ATST_NEVER)
+	{
+		GL_INS("Alpha test: NEVER single pass (accurate)");
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::NEVER;
+		return;
+	}
+
+	if (afail == AFAIL_KEEP)
+	{
+		// Accurate alpha test by discarding failing pixels.
+		GL_INS("Alpha test: AFAIL discard (accurate)");
+		GetAlphaTestConfigPS(atst, aref, false, ps_atst, ps_aref);
+		m_conf.ps.atst = ps_atst;
+		m_conf.cb_ps.FogColor_AREF.a = ps_aref;
+		m_conf.ps.afail = GSHWDrawConfig::PS_AFAIL_KEEP;
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::KEEP;
+		return;
+	}
+
+	// If true, the result of the Z test and output Z does NOT depend on overlapping Z writes to the same pixel.
+	const bool independent_z =
+		(m_cached_ctx.TEST.ZTST == ZTST_GEQUAL && m_vt.m_eq.z) ||
+		(m_cached_ctx.TEST.ZTST == ZTST_ALWAYS) ||
+		!zwe ||
+		(m_prim_overlap == PRIM_OVERLAP_NO);
+
+	// If true, the written RGB does NOT depend on overlapping alpha writes to the same pixel
+	const bool independent_rgb =
+		(m_context->ALPHA.C != ALPHA_C_AD) ||
+		!m_conf.colormask.wa ||
+		(m_prim_overlap == PRIM_OVERLAP_NO);
+
+	// Flags to determine if we can achieve full accuracy with less passes.
+	const bool simple_fb_only = (afail == AFAIL_FB_ONLY) && independent_z;
+	const bool simple_rgb_only = (afail == AFAIL_RGB_ONLY) && independent_z && independent_rgb;
+	const bool simple_zb_only = (afail == AFAIL_ZB_ONLY) && independent_z;
+
+	// Determine where RT and/or depth are needed for the feedback methods.
+	const bool afail_needs_rt = (afail == AFAIL_ZB_ONLY) || (afail == AFAIL_RGB_ONLY);
+	const bool afail_needs_depth = (afail == AFAIL_FB_ONLY) || ((afail == AFAIL_RGB_ONLY) && zwe);
+
+	// Determine whether the feedback methods require a single pass.
+	const bool feedback_one_pass = simple_fb_only || simple_rgb_only || simple_zb_only;
+
+	// If we already have the required barriers for the accurate feedback path and
+	// do not require depth feedback.
+	const bool free_barrier_feedback =
+		((m_conf.require_one_barrier && feedback_one_pass) || m_conf.require_full_barrier) &&
+		(features.texture_barrier || features.multidraw_fb_copy) &&
+		!afail_needs_depth;
+
+	// Determine if we can use FB-fetch for color only feedback.
+	const bool free_fbfetch_feedback = features.framebuffer_fetch && !afail_needs_depth;
+
+	// Determine if we have the correct features for depth feedback.
+	const bool depth_feedback_supported = features.depth_feedback != GSDevice::DepthFeedbackSupport::None;
+
+	// Determine if the method for doing depth feedback uses multiple render targets.
+	// This should not be used in conjunction with dual source blend.
+	const bool depth_as_rt_feedback = afail_needs_depth &&
+		(features.depth_feedback == GSDevice::DepthFeedbackSupport::DepthAsRT);
+
+	// We need depth feedback but do not have the correct features.
+	const bool avoid_feedback = afail_needs_depth && !depth_feedback_supported;
+
+	// Prefer feedback method only if it's free (color only feedback) or enabled.
+	const bool prefer_feedback = free_barrier_feedback || free_fbfetch_feedback ||
+	                             GSConfig.HWAccurateAlphaTest;
+
+	// The simple cases can be handle accurately in two passes so no point
+	// in requiring barriers if they are not already required.
+	const bool prefer_two_pass = !(free_fbfetch_feedback || free_barrier_feedback) &&
+	                             (simple_fb_only || simple_rgb_only || simple_zb_only);
+	
+	if (prefer_feedback && !prefer_two_pass && !avoid_feedback)
+	{
+		// Use RT and/or depth sampling for accurate AFAIL in the shader.
+		GL_INS("Alpha test with RT/depth feedback (accurate)");
+		GetAlphaTestConfigPS(atst, aref, false, ps_atst, ps_aref);
+		m_conf.ps.atst = ps_atst;
+		m_conf.cb_ps.FogColor_AREF.a = ps_aref;
+		m_conf.ps.afail = afail;
+
+		m_conf.ps.color_feedback |= afail_needs_rt;
+		m_conf.ps.depth_feedback |= afail_needs_depth;
+
+		if (!free_fbfetch_feedback && (features.texture_barrier || features.multidraw_fb_copy))
+		{
+			m_conf.require_one_barrier |= feedback_one_pass;
+			m_conf.require_full_barrier |= !feedback_one_pass;
+		}
+
+		// Handle SW depth writing and/or testing.
+		if (afail_needs_depth && zwe)
+		{
+			GL_INS("Enable SW depth write for depth feedback");
+			m_conf.ps.zwrite = true; // Make sure pixel shader writes to depth.
+
+			if (m_cached_ctx.DepthRead())
+			{
+				GL_INS("Enable SW depth testing for depth feedback");
+				m_conf.ps.ztst = m_cached_ctx.TEST.ZTST; // Enable SW Z test.
+				m_conf.depth.ztst = ZTST_ALWAYS; // Disable HW Z test.
+			}
+		}
+
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::FEEDBACK;
+	}
+	else if (simple_fb_only)
+	{
+		// First pass is to update color; second pass is to update Z.
+		GL_INS("Alpha test: RGBA then Z (accurate)");
+
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::SIMPLE_FB_ONLY;
+	}
+	else if (simple_rgb_only)
+	{
+		// First pass is to update color; second pass is to update Z;
+		GL_INS("Alpha test: RGBA (A with dual-source blend), then Z (accurate)");
+
+		// Tells shader to use dual source blending AFAIL on first pass.
+		GetAlphaTestConfigPS(atst, aref, false, ps_atst, ps_aref);
+		m_conf.ps.atst = ps_atst;
+		m_conf.cb_ps.FogColor_AREF.a = ps_aref;
+		m_conf.ps.afail = GSHWDrawConfig::PS_AFAIL_RGB_ONLY_DSB;
+		m_conf.ps.no_color1 = false;
+
+		// Swap stencil DATE for PrimID DATE, for both Z on and off cases.
+		// Because we're making some pixels pass, but not updating A, the stencil won't be synced.
+		if (DATE && !DATE_BARRIER && features.primitive_id)
+		{
+			if (!DATE_PRIMID)
+				GL_INS("Alpha test: Swap stencil DATE for PrimID, due to AFAIL");
+
+			DATE_one = false;
+			DATE_PRIMID = true;
+		}
+
+		// The actual blend setup will be done later after determining blending.
+
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::SIMPLE_RGB_ONLY;
+	}
+	else
+	{
+		// Use pass/fail method. Accurate for simple ZB_ONLY, otherwise may be inaccurate.
+		GL_INS("Alpha test: Two pass with pass/fail");
+
+		// Enable alpha test and discard failing fragments on first pass.
+		GetAlphaTestConfigPS(atst, aref, false, ps_atst, ps_aref);
+		m_conf.ps.atst = ps_atst;
+		m_conf.cb_ps.FogColor_AREF.a = ps_aref;
+		m_conf.ps.afail = GSHWDrawConfig::PS_AFAIL_KEEP;
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::PASS_THEN_FAIL;
+	}
+}
+
+void GSRendererHW::EmulateAlphaTestSecondPass()
+{
+	if (!GSHWDrawConfig::HasAlphaTestSecondPass(m_conf.alpha_test))
+	{
+		return;
+	}
+
+	GL_PUSH("HW: Alpha test config (2)");
+
+	const u32 atst = m_cached_ctx.TEST.ATST;
+	const u32 afail = m_cached_ctx.TEST.AFAIL;
+	const u32 aref = m_cached_ctx.TEST.AREF;
+
+	// Temp variables for PS config.
+	u32 ps_atst;
+	float ps_aref;
+
+	std::memcpy(&m_conf.alpha_second_pass.ps, &m_conf.ps, sizeof(m_conf.ps));
+	std::memcpy(&m_conf.alpha_second_pass.colormask, &m_conf.colormask, sizeof(m_conf.colormask));
+	std::memcpy(&m_conf.alpha_second_pass.depth, &m_conf.depth, sizeof(m_conf.depth));
+
+	if (m_conf.alpha_test == GSHWDrawConfig::AlphaTestMode::SIMPLE_FB_ONLY ||
+		m_conf.alpha_test == GSHWDrawConfig::AlphaTestMode::SIMPLE_RGB_ONLY)
+	{
+		// Two pass methods to process RGBA then Z. Always accurate.
+
+		m_conf.depth.zwe = false; // Disable Z write on first pass
+
+		m_conf.alpha_second_pass.colormask.wrgba = false; // Disable color write on second pass
+
+		// Only need a second pass if Z is written.
+		if (m_conf.alpha_second_pass.depth.zwe)
+		{
+			// Enable alpha test on second pass and discard failing fragments.
+			GetAlphaTestConfigPS(atst, aref, false, ps_atst, ps_aref);
+			m_conf.alpha_second_pass.enable = true;
+			m_conf.alpha_second_pass.ps.atst = ps_atst;
+			m_conf.alpha_second_pass.ps_aref = ps_aref;
+			m_conf.alpha_second_pass.ps.afail = GSHWDrawConfig::PS_AFAIL_KEEP;
+		}
+
+		// Setup for RBG_ONLY dual source blend selection
+		if (m_conf.alpha_test == GSHWDrawConfig::AlphaTestMode::SIMPLE_RGB_ONLY)
+		{
+			pxAssert(!m_conf.ps.no_color1); // Make sure dual source blend didn't accidentally get disabled.
+			if (!m_conf.blend.enable)
+			{
+				m_conf.blend = GSHWDrawConfig::BlendState(true, GSDevice::CONST_ONE, GSDevice::CONST_ZERO,
+					GSDevice::OP_ADD, GSDevice::SRC1_ALPHA, GSDevice::INV_SRC1_ALPHA, false, 0);
+			}
+			else
+			{
+				if (m_conf.blend_multi_pass.enable)
+				{
+					m_conf.blend_multi_pass.blend.src_factor_alpha = GSDevice::SRC1_ALPHA;
+					m_conf.blend_multi_pass.blend.dst_factor_alpha = GSDevice::INV_SRC1_ALPHA;
+				}
+				else
+				{
+					m_conf.blend.src_factor_alpha = GSDevice::SRC1_ALPHA;
+					m_conf.blend.dst_factor_alpha = GSDevice::INV_SRC1_ALPHA;
+				}
+			}
+		}
+	}
+	else
+	{
+		// Pass-then-fail method or NEVER.
+
+		// Determine the write mask for fragments on each pass.
+		if (afail == AFAIL_FB_ONLY)
+		{
+			// Disable Z write on second pass
+			m_conf.alpha_second_pass.depth.zwe = false;
+		}
+		else if (afail == AFAIL_ZB_ONLY)
+		{
+			m_conf.alpha_second_pass.colormask.wrgba = 0; // Disable color write on second pass
+		}
+		else if (afail == AFAIL_RGB_ONLY)
+		{
+			// Disable Z write on second pass
+			m_conf.alpha_second_pass.depth.zwe = false;
+
+			m_conf.alpha_second_pass.colormask.wrgba = m_conf.colormask.wrgba & 7; // Disable A write on second pass
+		}
+
+		// Only enable second pass if color or Z is written.
+		if (m_conf.alpha_second_pass.colormask.wrgba || m_conf.alpha_second_pass.depth.zwe)
+		{
+			// Enable alpha test and discard passing fragments on second pass.
+			GetAlphaTestConfigPS(atst, aref, true, ps_atst, ps_aref);
+			m_conf.alpha_second_pass.enable = true;
+			m_conf.alpha_second_pass.ps.atst = ps_atst;
+			m_conf.alpha_second_pass.ps_aref = ps_aref;
+			m_conf.alpha_second_pass.ps.afail = GSHWDrawConfig::PS_AFAIL_KEEP;
+		}
+	}
+
+	if (m_conf.alpha_second_pass.enable)
+	{
+		pxAssertRel(m_conf.alpha_second_pass.colormask.wrgba || m_conf.alpha_second_pass.depth.zwe,
+			"Alpha second pass has no color/depth write.");
+	}
+
+	// Some housekeeping for the second pass.
+	if (m_conf.alpha_second_pass.colormask.wrgba == 0)
+	{
+		m_conf.alpha_second_pass.ps.DisableColorOutput();
+	}
+	if (m_conf.alpha_second_pass.ps.IsFeedbackLoopRT() || m_conf.alpha_second_pass.ps.IsFeedbackLoopDepth())
+	{
+		m_conf.alpha_second_pass.require_one_barrier = m_conf.require_one_barrier;
+		m_conf.alpha_second_pass.require_full_barrier = m_conf.require_full_barrier;
+	}
+
+	// Finally, if the first pass is never used do only the second pass.
+	if (!(m_conf.colormask.wrgba || m_conf.depth.zwe))
+	{
+		std::memcpy(&m_conf.ps, &m_conf.alpha_second_pass.ps, sizeof(m_conf.ps));
+		std::memcpy(&m_conf.colormask, &m_conf.alpha_second_pass.colormask, sizeof(m_conf.colormask));
+		std::memcpy(&m_conf.depth, &m_conf.alpha_second_pass.depth, sizeof(m_conf.depth));
+		m_conf.cb_ps.FogColor_AREF.a = m_conf.alpha_second_pass.ps_aref;
+		m_conf.alpha_second_pass.enable = false;
+	}
+
+	// If the alpha test prevents all writes, abort the draw.
+	if (!(m_conf.colormask.wrgba || m_conf.depth.zwe))
+		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::ABORT_DRAW;
 }
 
 void GSRendererHW::CleanupDraw(bool invalidate_temp_src)
@@ -7518,6 +7897,10 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 	}
 
 	// DATE: selection of the algorithm. Must be done before blending because GL42 is not compatible with blending
+	const bool complex_alpha_test = m_cached_ctx.TEST.ATE &&
+	                                m_cached_ctx.TEST.ATST != ATST_ALWAYS &&
+	                                m_cached_ctx.TEST.ATST != ATST_NEVER &&
+	                                m_cached_ctx.TEST.AFAIL != AFAIL_KEEP;
 	if (DATE)
 	{
 		if (m_cached_ctx.TEST.DATM)
@@ -7555,7 +7938,7 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 			GL_PERF("DATE: Fast with FBA, all pixels will be >= 128");
 			DATE_one = !m_cached_ctx.TEST.DATM;
 		}
-		else if (m_conf.colormask.wa && !m_cached_ctx.TEST.ATE && !(m_cached_ctx.FRAME.FBMSK & 0x80000000))
+		else if (m_conf.colormask.wa && !complex_alpha_test && !(m_cached_ctx.FRAME.FBMSK & 0x80000000))
 		{
 			// Performance note: check alpha range with GetAlphaMinMax()
 			// Note: all my dump are already above 120fps, but it seems to reduce GPU load
@@ -7592,7 +7975,7 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 				GL_PERF("DATE: Accurate with alpha %d-%d", GetAlphaMinMax().min, GetAlphaMinMax().max);
 				DATE_PRIMID = true;
 			}
-			else if (features.texture_barrier)
+			else if (features.texture_barrier || features.multidraw_fb_copy)
 			{
 				GL_PERF("DATE: Accurate with alpha %d-%d", GetAlphaMinMax().min, GetAlphaMinMax().max);
 				m_conf.require_full_barrier = true;
@@ -7605,14 +7988,11 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 				DATE_one = true;
 			}
 		}
-		else if (!m_conf.colormask.wa && !m_cached_ctx.TEST.ATE)
+		else if (features.texture_barrier && !m_conf.colormask.wa)
 		{
 			GL_PERF("DATE: Accurate with no alpha write");
-			if (g_gs_device->Features().texture_barrier)
-			{
-				m_conf.require_one_barrier = true;
-				DATE_BARRIER = true;
-			}
+			m_conf.require_one_barrier = true;
+			DATE_BARRIER = true;
 		}
 
 		// Will save my life !
@@ -7735,6 +8115,13 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 		m_conf.ps.tfx = 4;
 	}
 
+	// Initialize to default assumption that we do not use dual source blend.
+	// Other stages may set this to false (enable dual source blend).
+	m_conf.ps.no_color1 = true;
+
+	// Perform alpha test first pass setup here as bending depends on it.
+	EmulateAlphaTest(DATE, DATE_BARRIER, DATE_one, DATE_PRIMID);
+
 	// AA1: Set alpha source to coverage 128 when there is no alpha blending.
 	m_conf.ps.fixed_one_a = IsCoverageAlpha();
 
@@ -7745,7 +8132,6 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 	else
 	{
 		m_conf.blend = {}; // No blending please
-		m_conf.ps.no_color1 = true;
 
 		if (can_scale_rt_alpha && !new_scale_rt_alpha && m_conf.colormask.wa)
 		{
@@ -7788,96 +8174,6 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 	{
 		rt->m_alpha_max = rt_new_alpha_max;
 		rt->m_alpha_min = rt_new_alpha_min;
-	}
-	// Warning must be done after EmulateZbuffer
-	// Depth test is always true so it can be executed in 2 passes (no order required) unlike color.
-	// The idea is to compute first the color which is independent of the alpha test. And then do a 2nd
-	// pass to handle the depth based on the alpha test.
-	const bool ate_first_pass = m_cached_ctx.TEST.DoFirstPass();
-	bool ate_second_pass = m_cached_ctx.TEST.DoSecondPass();
-	bool ate_RGBA_then_Z = false;
-	bool ate_RGB_then_Z = false;
-	GL_INS("HW: %sAlpha Test, ATST=%s, AFAIL=%s", (ate_first_pass && ate_second_pass) ? "Complex" : "",
-		GSUtil::GetATSTName(m_cached_ctx.TEST.ATST), GSUtil::GetAFAILName(m_cached_ctx.TEST.AFAIL));
-	if (ate_first_pass && ate_second_pass)
-	{
-		const bool commutative_depth = (m_conf.depth.ztst == ZTST_GEQUAL && m_vt.m_eq.z) || (m_conf.depth.ztst == ZTST_ALWAYS) || !m_conf.depth.zwe;
-		const bool commutative_alpha = (m_context->ALPHA.C != 1) || !m_conf.colormask.wa; // when either Alpha Src or a constant, or not updating A
-
-		ate_RGBA_then_Z = (afail_type == AFAIL_FB_ONLY) && commutative_depth;
-		ate_RGB_then_Z = (afail_type == AFAIL_RGB_ONLY) && commutative_depth && commutative_alpha;
-	}
-
-	if (ate_RGBA_then_Z)
-	{
-		GL_INS("HW: Alternate ATE handling: ate_RGBA_then_Z");
-		// Render all color but don't update depth
-		// ATE is disabled here
-		m_conf.depth.zwe = false;
-	}
-	else
-	{
-		float aref = m_conf.cb_ps.FogColor_AREF.a;
-		EmulateATST(aref, m_conf.ps, false);
-
-		// avoid redundant cbuffer updates
-		m_conf.cb_ps.FogColor_AREF.a = aref;
-		m_conf.alpha_second_pass.ps_aref = aref;
-
-		if (ate_RGB_then_Z)
-		{
-			GL_INS("HW: Alternate ATE handling: ate_RGB_then_Z");
-
-			// Blending might be off, ensure it's enabled.
-			// We write the alpha pass/fail to SRC1_ALPHA, which is used to update A.
-			m_conf.ps.afail = AFAIL_RGB_ONLY;
-			if ((features.framebuffer_fetch && m_conf.require_one_barrier) || m_conf.require_full_barrier)
-			{
-				// We're reading the rt anyways, use it for AFAIL
-				// This ensures we don't attempt to use fbfetch + blend, which breaks Intel GPUs on Metal
-				// Setting afail to RGB_ONLY without enabling color1 will enable this mode in the shader, so nothing more to do here.
-			}
-			else
-			{
-				m_conf.ps.no_color1 = false;
-				if (!m_conf.blend.enable)
-				{
-					m_conf.blend = GSHWDrawConfig::BlendState(true, GSDevice::CONST_ONE, GSDevice::CONST_ZERO,
-						GSDevice::OP_ADD, GSDevice::SRC1_ALPHA, GSDevice::INV_SRC1_ALPHA, false, 0);
-				}
-				else
-				{
-					if (m_conf.blend_multi_pass.enable)
-					{
-						m_conf.blend_multi_pass.no_color1 = false;
-						m_conf.blend_multi_pass.blend.src_factor_alpha = GSDevice::SRC1_ALPHA;
-						m_conf.blend_multi_pass.blend.dst_factor_alpha = GSDevice::INV_SRC1_ALPHA;
-					}
-					else
-					{
-						m_conf.blend.src_factor_alpha = GSDevice::SRC1_ALPHA;
-						m_conf.blend.dst_factor_alpha = GSDevice::INV_SRC1_ALPHA;
-					}
-				}
-			}
-
-			// If Z writes are on, unfortunately we can't single pass it.
-			// But we can write Z in the second pass instead.
-			ate_RGBA_then_Z = m_conf.depth.zwe;
-			ate_second_pass &= ate_RGBA_then_Z;
-			m_conf.depth.zwe = false;
-
-			// Swap stencil DATE for PrimID DATE, for both Z on and off cases.
-			// Because we're making some pixels pass, but not update A, the stencil won't be synced.
-			if (DATE && !DATE_BARRIER && features.primitive_id)
-			{
-				if (!DATE_PRIMID)
-					GL_INS("HW: Swap stencil DATE for PrimID, due to AFAIL");
-
-				DATE_one = false;
-				DATE_PRIMID = true;
-			}
-		}
 	}
 
 	// No point outputting colours if we're just writing depth.
@@ -8066,8 +8362,6 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 		m_conf.cb_ps.FogColor_AREF = fc.blend32<8>(m_conf.cb_ps.FogColor_AREF);
 	}
 
-
-
 	// Update RT scaled alpha flag, nothing's going to read it anymore.
 	if (rt)
 	{
@@ -8079,13 +8373,22 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 	if (features.framebuffer_fetch)
 	{
 		// Intel GPUs on Metal lock up if you try to use DSB and framebuffer fetch at once
-		// We should never need to do that (since using framebuffer fetch means you should be able to do all blending in shader), but sometimes it slips through
+		// We should never need to do that (since using framebuffer fetch means you should be able to do all blending in shader),
+		// but sometimes it slips through
 		if (m_conf.require_one_barrier || m_conf.require_full_barrier)
 			pxAssert(!m_conf.blend.enable);
 
-		// Barriers aren't needed with fbfetch.
-		m_conf.require_one_barrier = false;
-		m_conf.require_full_barrier = false;
+		// If we use depth feedback directly, we must use barriers for the depth texture.
+		// If we use depth-as-color feedback, then FB fetch can be used for depth also.
+		bool need_barriers_for_depth = m_conf.ps.IsFeedbackLoopDepth() &&
+		                               (features.depth_feedback == GSDevice::DepthFeedbackSupport::Depth);
+
+		if (!need_barriers_for_depth)
+		{
+			// Barriers aren't needed with fbfetch
+			m_conf.require_one_barrier = false;
+			m_conf.require_full_barrier = false;
+		}
 	}
 	// Multi-pass algorithms shouldn't be needed with full barrier and backends may not handle this correctly
 	pxAssert(!m_conf.require_full_barrier || !m_conf.ps.colclip_hw);
@@ -8101,6 +8404,15 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 		// These shouldn't be enabled if texture barriers aren't supported, make sure they are off.
 		m_conf.ps.write_rg = 0;
 		m_conf.require_full_barrier = false;
+	}
+
+	// Perform second pass setup here once barriers are determined.
+	EmulateAlphaTestSecondPass();
+
+	if (m_conf.alpha_test == GSHWDrawConfig::AlphaTestMode::ABORT_DRAW)
+	{
+		GL_INS("HW: Aborting draw %s due to alpha test config.", s_n);
+		return;
 	}
 
 	// rs
@@ -8122,94 +8434,19 @@ __ri void GSRendererHW::DrawPrims(GSTextureCache::Target* rt, GSTextureCache::Ta
 
 	SetupIA(rtscale, sx, sy, m_channel_shuffle_width != 0);
 
-	if (ate_second_pass)
+	StartDepthAsRTFeedback(); // Depends on the drawarea and alpha test having been determined.
+	
+	if (GSConfig.SaveHWConfig && GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
 	{
-		pxAssert(!m_conf.ps.pabe);
-
-		std::memcpy(&m_conf.alpha_second_pass.ps, &m_conf.ps, sizeof(m_conf.ps));
-		std::memcpy(&m_conf.alpha_second_pass.colormask, &m_conf.colormask, sizeof(m_conf.colormask));
-		std::memcpy(&m_conf.alpha_second_pass.depth, &m_conf.depth, sizeof(m_conf.depth));
-
-		// Not doing single pass AFAIL.
-		m_conf.alpha_second_pass.ps.afail = AFAIL_KEEP;
-
-		if (ate_RGBA_then_Z)
-		{
-			// Enable ATE as first pass to update the depth
-			// of pixels that passed the alpha test
-			EmulateATST(m_conf.alpha_second_pass.ps_aref, m_conf.alpha_second_pass.ps, false);
-		}
-		else
-		{
-			// second pass will process the pixels that failed
-			// the alpha test
-			EmulateATST(m_conf.alpha_second_pass.ps_aref, m_conf.alpha_second_pass.ps, true);
-		}
-
-		bool z = m_conf.depth.zwe;
-		bool r = m_conf.colormask.wr;
-		bool g = m_conf.colormask.wg;
-		bool b = m_conf.colormask.wb;
-		bool a = m_conf.colormask.wa;
-		switch (afail_type)
-		{
-			case AFAIL_KEEP: z = r = g = b = a = false; break; // none
-			case AFAIL_FB_ONLY: z = false; break; // rgba
-			case AFAIL_ZB_ONLY: r = g = b = a = false; break; // z
-			case AFAIL_RGB_ONLY: z = a = false; break; // rgb
-			default: ASSUME(0);
-		}
-
-		// Depth test should be disabled when depth writes are masked and similarly, Alpha test must be disabled
-		// when writes to all of the alpha bits in the Framebuffer are masked.
-		if (ate_RGBA_then_Z)
-		{
-			z = !m_cached_ctx.ZBUF.ZMSK;
-			r = g = b = a = false;
-		}
-
-		m_conf.alpha_second_pass.enable = true;
-
-		if (z || r || g || b || a)
-		{
-			m_conf.alpha_second_pass.depth.zwe = z;
-			m_conf.alpha_second_pass.colormask.wr = r;
-			m_conf.alpha_second_pass.colormask.wg = g;
-			m_conf.alpha_second_pass.colormask.wb = b;
-			m_conf.alpha_second_pass.colormask.wa = a;
-			if (m_conf.alpha_second_pass.colormask.wrgba == 0)
-			{
-				m_conf.alpha_second_pass.ps.DisableColorOutput();
-			}
-			if (m_conf.alpha_second_pass.ps.IsFeedbackLoop())
-			{
-				m_conf.alpha_second_pass.require_one_barrier = m_conf.require_one_barrier;
-				m_conf.alpha_second_pass.require_full_barrier = m_conf.require_full_barrier;
-			}
-		}
-		else
-		{
-			m_conf.alpha_second_pass.enable = false;
-		}
-	}
-
-	if (!ate_first_pass)
-	{
-		if (!m_conf.alpha_second_pass.enable)
-			return;
-
-		// RenderHW always renders first pass, replace first pass with second
-		std::memcpy(&m_conf.ps, &m_conf.alpha_second_pass.ps, sizeof(m_conf.ps));
-		std::memcpy(&m_conf.colormask, &m_conf.alpha_second_pass.colormask, sizeof(m_conf.colormask));
-		std::memcpy(&m_conf.depth, &m_conf.alpha_second_pass.depth, sizeof(m_conf.depth));
-		m_conf.cb_ps.FogColor_AREF.a = m_conf.alpha_second_pass.ps_aref;
-		m_conf.alpha_second_pass.enable = false;
+		GSHWDrawConfig::DumpConfig(GetDrawDumpPath("%05d_hwconfig.txt", s_n), m_conf);
 	}
 
 	if (!m_channel_shuffle_width)
 		g_gs_device->RenderHW(m_conf);
 	else
 		m_last_rt = rt;
+
+	CleanupDepthAsRTFeedback();
 }
 
 // If the EE uploaded a new CLUT since the last draw, use that.
@@ -8364,7 +8601,7 @@ GSRendererHW::CLUTDrawTestResult GSRendererHW::PossibleCLUTDraw()
 	// Debugging stuff..
 	//const u32 startbp = psm.info.bn(m_vt.m_min.p.x, m_vt.m_min.p.y, m_FRAME.Block(), m_FRAME.FBW);
 	//const u32 endbp = psm.info.bn(m_vt.m_max.p.x, m_vt.m_max.p.y, m_FRAME.Block(), m_FRAME.FBW);
-	//DevCon.Warning("HW: Draw width %f height %f page width %f height %f TPSM %x TBP0 %x FPSM %x FBP %x CBP %x valid size %d Invalid %d DISPFB0 %x DISPFB1 %x start %x end %x draw %d", draw_width, draw_height, page_width, page_height, m_cached_ctx.TEX0.PSM, m_cached_ctx.TEX0.TBP0, m_FRAME.PSM, m_FRAME.Block(), m_mem.m_clut.GetCLUTCBP(), valid_size, m_mem.m_clut.IsInvalid(), m_regs->DISP[0].DISPFB.Block(), m_regs->DISP[1].DISPFB.Block(), startbp, endbp, s_n);
+	//DevCon.Warning("HW: Draw width %f height %f page width %f height %f TPSM %x TBP0 %x FPSM %x FBP %x CBP %x valid size %d Invalid %d DISPFB0 %x DISPFB1 %x start %x end %x draw %lld", draw_width, draw_height, page_width, page_height, m_cached_ctx.TEX0.PSM, m_cached_ctx.TEX0.TBP0, m_FRAME.PSM, m_FRAME.Block(), m_mem.m_clut.GetCLUTCBP(), valid_size, m_mem.m_clut.IsInvalid(), m_regs->DISP[0].DISPFB.Block(), m_regs->DISP[1].DISPFB.Block(), startbp, endbp, s_n);
 
 	return CLUTDrawTestResult::CLUTDrawOnCPU;
 }
@@ -9387,7 +9624,7 @@ int GSRendererHW::IsScalingDraw(GSTextureCache::Source* src, bool no_gaps)
 	if (no_gaps_or_single_sprite && ((is_upscale && !m_context->ALPHA.IsOpaque()) ||
 		(is_downscale && (dst_discarded || (PRIM->ABE && m_context->ALPHA.C == 2 && m_context->ALPHA.FIX == 255)))))
 	{
-		GL_INS("HW: %s draw detected - from %dx%d to %dx%d draw %d", is_downscale ? "Downscale" : "Upscale", tex_size.x, tex_size.y, draw_size.x, draw_size.y, s_n);
+		GL_INS("HW: %s draw detected - from %dx%d to %dx%d draw %lld", is_downscale ? "Downscale" : "Upscale", tex_size.x, tex_size.y, draw_size.x, draw_size.y, s_n);
 		return is_upscale ? 2 : 1;
 	}
 
@@ -9710,4 +9947,46 @@ std::size_t GSRendererHW::ComputeDrawlistGetSize(float scale)
 		GetPrimitiveOverlapDrawlist(true, save_bbox, scale);
 	}
 	return m_drawlist.size();
+}
+
+void GSRendererHW::StartDepthAsRTFeedback()
+{
+	// Create a temporary depth color target
+	if (m_conf.ds && m_conf.ps.IsFeedbackLoopDepth() &&
+		g_gs_device->Features().depth_feedback == GSDevice::DepthFeedbackSupport::DepthAsRT)
+	{
+		GL_PUSH("HW: Creating temporary R32 RT for depth feedback");
+
+		pxAssert(m_conf.ps.no_color1); // Should not be dual-source blending with multiple render targets.
+
+		// We should have depth output or feedback doesn't make sense.
+		// We will output to both the depth buffer and color clone simultaneously in the shader.
+		pxAssert(m_conf.depth.zwe);
+
+		// Disable HW depth test since we will be using SW depth test (if needed).
+		m_conf.depth.ztst = ZTST_ALWAYS;
+		if (m_conf.alpha_second_pass.enable && m_conf.alpha_second_pass.depth.zwe)
+		{
+			// Do the same with the alpha second pass.
+			m_conf.alpha_second_pass.depth.ztst = ZTST_ALWAYS;
+		}
+
+		// Create a temporary RT and copy the area needed for the draw.
+		const int w = m_conf.ds->GetWidth();
+		const int h = m_conf.ds->GetHeight();
+		m_conf.ds_as_rt = g_gs_device->CreateRenderTarget(w, h, GSTexture::Format::Float32, false, true);
+		const GSVector4 dRect(m_conf.drawarea);
+		const GSVector4 sRect(dRect.x / w, dRect.y / h, dRect.z / w, dRect.w / h);
+		g_gs_device->StretchRect(m_conf.ds, sRect, m_conf.ds_as_rt, dRect, ShaderConvert::FLOAT32_DEPTH_TO_COLOR, false);
+		g_perfmon.Put(GSPerfMon::TextureCopies, 1.0);
+	}
+}
+
+void GSRendererHW::CleanupDepthAsRTFeedback()
+{
+	if (m_conf.ds_as_rt)
+	{
+		g_gs_device->Recycle(m_conf.ds_as_rt);
+		m_conf.ds_as_rt = nullptr;
+	}
 }

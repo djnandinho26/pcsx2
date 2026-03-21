@@ -70,6 +70,7 @@ using ImGuiFullscreen::GetCachedSvgTexture;
 using ImGuiFullscreen::GetCachedSvgTextureAsync;
 using ImGuiFullscreen::GetCachedTexture;
 using ImGuiFullscreen::GetCachedTextureAsync;
+using ImGuiFullscreen::GetLineHeight;
 using ImGuiFullscreen::GetPlaceholderTexture;
 using ImGuiFullscreen::GetQueuedFocusResetType;
 using ImGuiFullscreen::HorizontalMenuItem;
@@ -163,6 +164,7 @@ namespace FullscreenUI
 		BIOS,
 		Emulation,
 		Graphics,
+		OSD,
 		Audio,
 		MemoryCard,
 		NetworkHDD,
@@ -337,6 +339,10 @@ namespace FullscreenUI
 	void DrawFallbackCover(const ImVec2& size);
 	void DrawFallbackCover(ImDrawList* draw_list, const ImVec2& min, const ImVec2& max);
 
+	// Trim a string to fit in the given space
+	std::string_view TrimString(const std::pair<ImFont*, float>& font, std::string_view str, float available_space);
+	static constexpr const char* g_ellipsis = "\xe2\x80\xa6";
+
 	// Lazily populated cover images.
 	inline std::unordered_map<std::string, std::string> s_cover_image_map;
 	inline std::vector<const GameList::Entry*> s_game_list_sorted_entries;
@@ -377,6 +383,7 @@ namespace FullscreenUI
 	void DrawBIOSSettingsPage();
 	void DrawEmulationSettingsPage();
 	void DrawGraphicsSettingsPage(SettingsInterface* bsi, bool show_advanced_settings);
+	void DrawOSDSettingsPage();
 	void DrawAudioSettingsPage();
 	void DrawMemoryCardSettingsPage();
 	void DrawNetworkHDDSettingsPage();
@@ -492,5 +499,6 @@ namespace FullscreenUI
 	inline std::vector<InputBindingKey> s_input_binding_new_bindings;
 	inline std::vector<std::pair<InputBindingKey, std::pair<float, float>>> s_input_binding_value_ranges;
 	inline Common::Timer s_input_binding_timer;
+	inline bool s_prefer_english_titles;
 
 } // namespace FullscreenUI

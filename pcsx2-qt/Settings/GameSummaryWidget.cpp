@@ -342,15 +342,15 @@ void GameSummaryWidget::onVerifyClicked()
 		if (!hentry->version.empty())
 		{
 			setVerifyResult(tr("Verified as %1 [%2] (Version %3).")
-								.arg(QString::fromStdString(hentry->name))
-								.arg(QString::fromStdString(hentry->serial))
-								.arg(QString::fromStdString(hentry->version)));
+					.arg(QString::fromStdString(hentry->name))
+					.arg(QString::fromStdString(hentry->serial))
+					.arg(QString::fromStdString(hentry->version)));
 		}
 		else
 		{
 			setVerifyResult(tr("Verified as %1 [%2].")
-								.arg(QString::fromStdString(hentry->name))
-								.arg(QString::fromStdString(hentry->serial)));
+					.arg(QString::fromStdString(hentry->name))
+					.arg(QString::fromStdString(hentry->serial)));
 		}
 	}
 	else
@@ -418,3 +418,5 @@ void GameSummaryWidget::setCustomRegion(int region)
 	GameList::SaveCustomRegionForPath(m_entry_path, region);
 	repopulateCurrentDetails();
 }
+
+#include "moc_GameSummaryWidget.cpp"

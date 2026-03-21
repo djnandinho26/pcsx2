@@ -83,7 +83,7 @@ public:
 private:
 	enum : u32
 	{
-		MAX_TEXTURES = 4,
+		MAX_TEXTURES = 5,
 		MAX_SAMPLERS = 1,
 		VERTEX_BUFFER_SIZE = 32 * 1024 * 1024,
 		INDEX_BUFFER_SIZE = 16 * 1024 * 1024,
@@ -191,6 +191,7 @@ private:
 		wil::com_ptr_nothrow<ID3D11VertexShader> vs;
 		wil::com_ptr_nothrow<ID3D11PixelShader> ps[static_cast<int>(PresentShader::Count)];
 		wil::com_ptr_nothrow<ID3D11Buffer> ps_cb;
+		DisplayConstantBuffer cb_uniforms;
 	} m_present;
 
 	struct
@@ -198,12 +199,14 @@ private:
 		wil::com_ptr_nothrow<ID3D11PixelShader> ps[2];
 		wil::com_ptr_nothrow<ID3D11Buffer> cb;
 		wil::com_ptr_nothrow<ID3D11BlendState> bs;
+		MergeConstantBuffer cb_uniforms;
 	} m_merge;
 
 	struct
 	{
 		wil::com_ptr_nothrow<ID3D11PixelShader> ps[NUM_INTERLACE_SHADERS];
 		wil::com_ptr_nothrow<ID3D11Buffer> cb;
+		InterlaceConstantBuffer cb_uniforms;
 	} m_interlace;
 
 	wil::com_ptr_nothrow<ID3D11PixelShader> m_fxaa_ps;
@@ -212,6 +215,7 @@ private:
 	{
 		wil::com_ptr_nothrow<ID3D11PixelShader> ps;
 		wil::com_ptr_nothrow<ID3D11Buffer> cb;
+		float cb_uniforms[4];
 	} m_shadeboost;
 
 	struct
@@ -235,6 +239,7 @@ private:
 		wil::com_ptr_nothrow<ID3D11PixelShader> ps;
 		wil::com_ptr_nothrow<ID3D11BlendState> bs;
 		wil::com_ptr_nothrow<ID3D11Buffer> vs_cb;
+		GSVector4 vs_cb_uniforms[4];
 	} m_imgui;
 
 	// Shaders...
@@ -342,12 +347,16 @@ public:
 	void SetViewport(const GSVector2i& viewport);
 	void SetScissor(const GSVector4i& scissor);
 
+	void UpdateSubresource(ID3D11Buffer* buffer, const void* cb_uniforms, void* cached_cb_uniforms, size_t cb_uniforms_size);
+
 	void SetupVS(VSSelector sel, const GSHWDrawConfig::VSConstantBuffer* cb);
 	void SetupPS(const PSSelector& sel, const GSHWDrawConfig::PSConstantBuffer* cb, PSSamplerSelector ssel);
 	void SetupOM(OMDepthStencilSelector dssel, OMBlendSelector bsel, u8 afix);
 
 	void RenderHW(GSHWDrawConfig& config) override;
-	void SendHWDraw(const GSHWDrawConfig& config, GSTexture* draw_rt_clone, GSTexture* draw_rt, const bool one_barrier, const bool full_barrier, const bool skip_first_barrier);
+	void SendHWDraw(const GSHWDrawConfig& config,
+		GSTexture* draw_rt_clone, GSTexture* draw_rt, GSTexture* draw_ds_clone, GSTexture* draw_ds,
+		const bool one_barrier, const bool full_barrier, const bool skip_first_barrier);
 
 	void ClearSamplerCache() override;
 

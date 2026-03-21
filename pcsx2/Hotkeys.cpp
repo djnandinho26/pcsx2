@@ -240,6 +240,16 @@ DEFINE_HOTKEY("ResetVM", TRANSLATE_NOOP("Hotkeys", "System"), TRANSLATE_NOOP("Ho
 		if (!pressed && VMManager::HasValidVM())
 			VMManager::Reset();
 	})
+DEFINE_HOTKEY("ReloadPatches", TRANSLATE_NOOP("Hotkeys", "System"), TRANSLATE_NOOP("Hotkeys", "Reload Patches"),
+	[](s32 pressed) {
+		if (!pressed && VMManager::HasValidVM())
+		{
+			Host::RunOnCPUThread([]() {
+				Host::AddKeyedOSDMessage("ReloadPatchHotkey", "Reloading Patches...");
+				VMManager::ReloadPatches(true, false, true, true);
+			});
+		}
+	})
 DEFINE_HOTKEY("SwapMemCards", TRANSLATE_NOOP("Hotkeys", "System"),
 	TRANSLATE_NOOP("Hotkeys", "Swap Memory Cards"), [](s32 pressed) {
 		if (!pressed && VMManager::HasValidVM())
@@ -339,5 +349,10 @@ DEFINE_HOTKEY("DecreaseVolume", TRANSLATE_NOOP("Hotkeys", "Audio"), TRANSLATE_NO
 	[](s32 pressed) {
 		if (!pressed && VMManager::HasValidVM())
 			HotkeyAdjustVolume(-5);
+	})
+DEFINE_HOTKEY("ToggleMouseLock", TRANSLATE_NOOP("Hotkeys", "System"), TRANSLATE_NOOP("Hotkeys", "Toggle Mouse Lock"),
+	[](s32 pressed) {
+		if (!pressed)
+			Host::SetMouseLock(!Host::GetBoolSettingValue("EmuCore", "EnableMouseLock"));
 	})
 END_HOTKEY_LIST()

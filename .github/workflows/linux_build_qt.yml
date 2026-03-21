@@ -27,10 +27,6 @@ on:
         required: false
         type: boolean
         default: false
-      detail:
-        required: false
-        type: string
-        default: ""
       patchesUrl:
         required: false
         type: string
@@ -95,8 +91,8 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .ccache
-          key: ${{ inputs.os }} ${{ inputs.platform }} ${{ inputs.compiler }} ${{ inputs.detail }} ccache ${{ steps.ccache_cache_timestamp.outputs.timestamp }}
-          restore-keys: ${{ inputs.os }} ${{ inputs.platform }} ${{ inputs.compiler }} ${{ inputs.detail }} ccache
+          key: ${{ inputs.os }} ${{ inputs.platform }} ${{ inputs.compiler }} ccache ${{ steps.ccache_cache_timestamp.outputs.timestamp }}
+          restore-keys: ${{ inputs.os }} ${{ inputs.platform }} ${{ inputs.compiler }} ccache
 
       - name: Install Packages
         run: |
@@ -174,7 +170,7 @@ jobs:
 
       - name: Upload artifact
         if: inputs.buildAppImage == true
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.artifact-metadata.outputs.artifact-name }}
           path: ci-artifacts
