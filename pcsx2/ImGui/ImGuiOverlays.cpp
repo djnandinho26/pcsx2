@@ -8,6 +8,9 @@
 #include "GS/GSCapture.h"
 #include "GS/GSVector.h"
 #include "GS/Renderers/Common/GSDevice.h"
+#ifdef _WIN32
+#include "GS/Renderers/DX12/GSDevice12.h"
+#endif
 #include "GS/Renderers/HW/GSTextureReplacements.h"
 #include "Host.h"
 #include "IconsFontAwesome.h"
@@ -66,6 +69,7 @@ SmallString s_cpu_usage_vu_line;
 std::vector<SmallString> s_software_thread_lines;
 SmallString s_capture_line;
 SmallString s_gpu_usage_line;
+SmallString s_gpu_debug_info_line;
 SmallString s_speed_icon;
 
 constexpr ImU32 white_color = IM_COL32(255, 255, 255, 255);
@@ -482,6 +486,22 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 				FormatProcessorStat(s_gpu_usage_line, PerformanceMetrics::GetGPUUsage(), PerformanceMetrics::GetGPUAverageTime());
 				DRAW_LINE(osd_font, font_size, s_gpu_usage_line.c_str(), white_color);
 			}
+
+			if (GSConfig.OsdShowGPUDebug)
+			{
+#ifdef _WIN32
+				if (g_gs_device->GetRenderAPI() == RenderAPI::D3D12)
+				{
+					GSDevice12* dev12 = static_cast<GSDevice12*>(g_gs_device.get());
+
+					s_gpu_debug_info_line.format("D3D12 Descriptor Heaps | SRV/UAV: {}/{} | RTV: {}/{} | DSV {}/{}",
+						dev12->GetDescriptorHeapManager().GetAllocatedDescriptors(), dev12->GetDescriptorHeapManager().GetNumDescriptors(),
+						dev12->GetRTVHeapManager().GetAllocatedDescriptors(), dev12->GetRTVHeapManager().GetNumDescriptors(),
+						dev12->GetDSVHeapManager().GetAllocatedDescriptors(), dev12->GetDSVHeapManager().GetNumDescriptors());
+					DRAW_LINE(osd_font, font_size, s_gpu_debug_info_line.c_str(), white_color);
+				}
+#endif
+			}
 		}
 		// No refresh yet. Display cached lines.
 		else
@@ -526,6 +546,14 @@ __ri void ImGuiManager::DrawPerformanceOverlay(float& position_y, float scale, f
 
 			if (GSConfig.OsdShowGPU)
 				DRAW_LINE(osd_font, font_size, s_gpu_usage_line.c_str(), white_color);
+
+			if (GSConfig.OsdShowGPUDebug)
+			{
+#ifdef _WIN32
+				if (g_gs_device->GetRenderAPI() == RenderAPI::D3D12)
+					DRAW_LINE(osd_font, font_size, s_gpu_debug_info_line.c_str(), white_color);
+#endif
+			}
 		}
 
 		// Check every OSD frame because this is an animation.
@@ -807,6 +835,9 @@ __ri void ImGuiManager::DrawSettingsOverlay(float scale, float margin, float spa
 
 		if (GSConfig.HWAccurateAlphaTest)
 			APPEND("AAT ");
+		
+		if (GSConfig.HWAA1)
+			APPEND("AA1 ");
 
 		// deliberately test global and print local here for auto values
 		if (EmuConfig.GS.TextureFiltering != BiFiltering::PS2)
@@ -865,6 +896,8 @@ __ri void ImGuiManager::DrawSettingsOverlay(float scale, float margin, float spa
 			APPEND("PLFD ");
 		if (GSConfig.UserHacks_EstimateTextureRegion)
 			APPEND("ETR ");
+		if (GSConfig.UserHacks_DrawBuffering)
+			APPEND("DRWB");
 		if (GSConfig.HWSpinGPUForReadbacks)
 			APPEND("RBSG ");
 		if (GSConfig.HWSpinCPUForReadbacks)
@@ -908,7 +941,7 @@ __ri void ImGuiManager::DrawInputsOverlay(float scale, float margin, float spaci
 		return;
 
 	const float shadow_offset = std::ceil(scale);
-	ImFont* const font = ImGuiManager::GetOSDFont();
+	ImFont* const font = ImGuiManager::GetStandardFont();
 	const float font_size = ImGuiManager::GetFontSizeStandard();
 	const float line_height = ImGuiFullscreen::GetLineHeight({ font, font_size });
 
