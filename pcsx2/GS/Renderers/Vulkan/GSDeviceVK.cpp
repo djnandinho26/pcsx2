@@ -13,6 +13,7 @@
 
 #include "BuildVersion.h"
 #include "Host.h"
+#include "ImGui/ImGuiManager.h"
 
 #include "common/Console.h"
 #include "common/BitUtils.h"
@@ -2353,6 +2354,7 @@ GSDevice::PresentResult GSDeviceVK::BeginPresent(bool frame_skip)
 		if (res == VK_SUBOPTIMAL_KHR || res == VK_ERROR_OUT_OF_DATE_KHR)
 		{
 			ResizeWindow(0, 0, m_window_info.surface_scale);
+			ImGuiManager::WindowResized();
 			res = m_swap_chain->AcquireNextImage();
 		}
 		else if (res == VK_ERROR_SURFACE_LOST_KHR)
@@ -3609,6 +3611,8 @@ void GSDeviceVK::OMSetRenderTargets(
 				{
 					// need to update descriptors to reflect the new layout
 					m_dirty_flags |= (DIRTY_FLAG_TFX_TEXTURE_0 << TFX_TEXTURE_RT);
+					if (m_tfx_textures[TFX_TEXTURE_TEXTURE] == vkRt)
+						m_dirty_flags |= DIRTY_FLAG_TFX_TEXTURE_0 << TFX_TEXTURE_TEXTURE;
 					vkRt->TransitionToLayout(GSTextureVK::Layout::FeedbackLoop);
 				}
 			}
@@ -3631,6 +3635,8 @@ void GSDeviceVK::OMSetRenderTargets(
 				if (vkDs->GetLayout() != GSTextureVK::Layout::FeedbackLoop)
 				{
 					m_dirty_flags |= (DIRTY_FLAG_TFX_TEXTURE_0 << TFX_TEXTURE_DEPTH);
+					if (m_tfx_textures[TFX_TEXTURE_TEXTURE] == vkDs)
+						m_dirty_flags |= DIRTY_FLAG_TFX_TEXTURE_0 << TFX_TEXTURE_TEXTURE;
 					vkDs->TransitionToLayout(GSTextureVK::Layout::FeedbackLoop);
 				}
 			}
@@ -3639,6 +3645,8 @@ void GSDeviceVK::OMSetRenderTargets(
 				if (vkDs->GetLayout() != GSTextureVK::Layout::FeedbackLoop)
 				{
 					m_dirty_flags |= (DIRTY_FLAG_TFX_TEXTURE_0 << TFX_TEXTURE_TEXTURE);
+					if (m_tfx_textures[TFX_TEXTURE_TEXTURE] == vkDs)
+						m_dirty_flags |= DIRTY_FLAG_TFX_TEXTURE_0 << TFX_TEXTURE_TEXTURE;
 					vkDs->TransitionToLayout(GSTextureVK::Layout::FeedbackLoop);
 				}
 			}
@@ -5264,6 +5272,7 @@ void GSDeviceVK::SetLineWidth(float width)
 void GSDeviceVK::PSSetShaderResource(int i, GSTexture* sr, bool check_state)
 {
 	GSTextureVK* vkTex = static_cast<GSTextureVK*>(sr);
+	bool update_layout = false;
 	if (vkTex)
 	{
 		if (check_state)
@@ -5272,6 +5281,7 @@ void GSDeviceVK::PSSetShaderResource(int i, GSTexture* sr, bool check_state)
 			{
 				GL_INS("Ending render pass due to resource transition");
 				EndRenderPass();
+				update_layout = true;
 			}
 
 			vkTex->CommitClear();
@@ -5284,7 +5294,7 @@ void GSDeviceVK::PSSetShaderResource(int i, GSTexture* sr, bool check_state)
 		vkTex = m_null_texture.get();
 	}
 
-	if (m_tfx_textures[i] == vkTex)
+	if (m_tfx_textures[i] == vkTex && !update_layout)
 		return;
 
 	m_tfx_textures[i] = vkTex;
@@ -6020,10 +6030,18 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 		pxAssertMsg(m_features.texture_barrier, "Texture barriers enabled");
 		PSSetShaderResource(TFX_TEXTURE_RT, draw_rt, false);
 	}
+	else
+	{
+		PSSetShaderResource(TFX_TEXTURE_RT, nullptr, false); // Unbind to avoid layout conflicts
+	}
 	if (pipe.IsDepthFeedbackLoop())
 	{
 		pxAssertMsg(m_features.texture_barrier, "Texture barriers enabled");
 		PSSetShaderResource(TFX_TEXTURE_DEPTH, draw_ds, false);
+	}
+	else
+	{
+		PSSetShaderResource(TFX_TEXTURE_DEPTH, nullptr, false); // Unbind to avoid layout conflicts
 	}
 	// Begin render pass if new target or out of the area.
 	if (!InRenderPass())
