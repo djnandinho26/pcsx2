@@ -53,8 +53,14 @@ private:
 
 		__ri bool DepthWrite() const
 		{
-			if (TEST.ATE && TEST.ATST == ATST_NEVER &&
-				TEST.AFAIL != AFAIL_ZB_ONLY) // alpha test, all pixels fail, z buffer is not updated
+			// Alpha test, all pixels fail, z buffer is not updated.
+			if (TEST.ATE && TEST.ATST == ATST_NEVER && TEST.AFAIL != AFAIL_ZB_ONLY)
+			{
+				return false;
+			}
+
+			// Depth test enabled, all pixels fail.
+			if (TEST.ZTE && TEST.ZTST == ZTST_NEVER)
 			{
 				return false;
 			}
@@ -349,7 +355,8 @@ public:
 	bool VerifyIndices();
 	void ExpandLineIndices();
 	GSVector4 RealignTargetTextureCoordinate(const GSTextureCache::Source* tex);
-	GSVector4i ComputeBoundingBox(const GSVector2i& rtsize, float rtscale);
+	GSVector4i ComputeBoundingBoxRT(const GSVector2i& rtsize, float rtscale);
+	GSVector4i ComputeBoundingBoxTex(const GSVector2i& texsize, const GSVector4i& region, float texscale);
 	void MergeSprite(GSTextureCache::Source* tex);
 	float GetTextureScaleFactor() override;
 	GSVector2i GetValidSize(const GSTextureCache::Source* tex = nullptr, const bool is_shuffle = false);
