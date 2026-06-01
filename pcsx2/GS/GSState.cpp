@@ -385,7 +385,7 @@ void GSState::ResetDrawBuffers()
 // exclude_current is used if there is a flush for a reason other than the normal context change.
 void GSState::FlushBuffers(bool flush_base_only, bool use_flush_reason, GSFlushReason flush_reason)
 {
-	const u32 current_idx = m_current_buffer_idx;
+	const int current_idx = m_current_buffer_idx;
 	bool restore_env = false;
 
 	if (m_used_buffers_idx > 0)
@@ -487,15 +487,11 @@ void GSState::PushBuffer()
 		{
 			for (u32 i = 0; i < copy_amt; i++)
 			{
-				GSVector4i* RESTRICT vert_ptr = (GSVector4i*)&m_vertex->buff[m_vertex->head + i];
-				GSVector4i v = vert_ptr[1];
-				v = v.xxxx().u16to32().sub32(m_xyof);
-				v = v.blend32<12>(v.sra32<4>());
-				m_vertex->xy[i & 3] = v;
-				m_vertex->xy_tail = std::min(copy_amt, 2U);
+				m_vertex->xy[i & 3] = m_vertex_buffers[m_current_buffer_idx].xy[((m_vertex_buffers[m_current_buffer_idx].xy_tail - copy_amt) + i) & 3];
+				m_vertex->xy_tail++;
 
 				if (i == 0)
-					m_vertex->xyhead = v;
+					m_vertex->xyhead = m_vertex_buffers[m_current_buffer_idx].xyhead;
 			}
 		}
 		else
@@ -641,18 +637,13 @@ bool GSState::CanBufferNewDraw()
 
 				if (copy_amt)
 				{
-					for (u32 j = 0; j < copy_amt; j++)
+					for (u32 i = 0; i < copy_amt; i++)
 					{
-						GSVector4i* RESTRICT vert_ptr = (GSVector4i*)&m_vertex->buff[m_vertex->head + j];
-						GSVector4i v = vert_ptr[1];
-						v = v.xxxx().u16to32().sub32(m_xyof);
-						v = v.blend32<12>(v.sra32<4>());
-						m_vertex->xy[j & 3] = v;
+						m_vertex->xy[m_vertex->xy_tail & 3] = m_vertex_buffers[m_current_buffer_idx].xy[((m_vertex_buffers[m_current_buffer_idx].xy_tail - copy_amt) + i) & 3];
+						m_vertex->xy_tail++;
 
-						if (j == 0)
-							m_vertex->xyhead = v;
-
-						m_vertex->xy_tail = copy_amt;
+						if (i == 0)
+							m_vertex->xyhead = m_vertex_buffers[m_current_buffer_idx].xyhead;
 					}
 				}
 				else
@@ -2616,6 +2607,7 @@ void GSState::FlushPrim()
 		m_quad_check_valid_shuffle = false;
 		m_drawlist.clear();
 		m_drawlist_bbox.clear();
+		m_drawlist_bbox_tex.clear();
 
 		if (GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
 		{
@@ -4725,6 +4717,71 @@ GSState::PRIM_OVERLAP GSState::GetPrimitiveOverlapDrawlist(bool save_drawlist, b
 	}
 }
 
+template <u32 primclass, bool fst>
+void GSState::GetPrimitiveOverlapDrawlistTextureBBoxImpl(float bbox_scale)
+{
+	pxAssert(m_drawlist_bbox_tex.empty()); // Should only call this once per draw.
+
+	constexpr int n = GSUtil::GetClassVertexCount(primclass);
+	const GSVertex* RESTRICT v = m_vertex->buff;
+	const u16* RESTRICT index = m_index->buff;
+	const u32 count = m_index->tail;
+
+	for (u32 i = 0; i < count; i += n)
+	{
+		const float q = primclass == GS_SPRITE_CLASS ? v[index[i + 1]].RGBAQ.Q : v[index[i]].RGBAQ.Q;
+		GSVector4 bbox = GetTexCoordsImpl<fst>(v[index[i]], q);
+
+		for (u32 j = 1; j < n; j++)
+		{
+			const GSVector4 tex = GetTexCoordsImpl<fst>(v[index[i + j]]);
+			bbox = bbox.min(tex).xyzw(bbox.max(tex));
+		}
+
+		bbox = bbox * bbox_scale; // Account for upscaling.
+		bbox = bbox.floor().xyzw(bbox.ceil()); // Round.
+		bbox += GSVector4(-1.0f, -1.0f, 1.0f, 1.0f); // +1 on all sides for bilinear.
+
+		m_drawlist_bbox_tex.push_back(GSVector4i(bbox));
+	}
+}
+
+void GSState::GetPrimitiveOverlapDrawlistTextureBBox(float bbox_scale)
+{
+	pxAssert(PRIM->TME);
+
+	switch (m_vt.m_primclass)
+	{
+		case GS_POINT_CLASS:
+			if (PRIM->FST)
+				GetPrimitiveOverlapDrawlistTextureBBoxImpl<GS_POINT_CLASS, true>(bbox_scale);
+			else
+				GetPrimitiveOverlapDrawlistTextureBBoxImpl<GS_POINT_CLASS, false>(bbox_scale);
+			break;
+		case GS_LINE_CLASS:
+			if (PRIM->FST)
+				GetPrimitiveOverlapDrawlistTextureBBoxImpl<GS_LINE_CLASS, true>(bbox_scale);
+			else
+				GetPrimitiveOverlapDrawlistTextureBBoxImpl<GS_LINE_CLASS, false>(bbox_scale);
+			break;
+		case GS_TRIANGLE_CLASS:
+			if (PRIM->FST)
+				GetPrimitiveOverlapDrawlistTextureBBoxImpl<GS_TRIANGLE_CLASS, true>(bbox_scale);
+			else
+				GetPrimitiveOverlapDrawlistTextureBBoxImpl<GS_TRIANGLE_CLASS, false>(bbox_scale);
+			break;
+		case GS_SPRITE_CLASS:
+			if (PRIM->FST)
+				GetPrimitiveOverlapDrawlistTextureBBoxImpl<GS_SPRITE_CLASS, true>(bbox_scale);
+			else
+				GetPrimitiveOverlapDrawlistTextureBBoxImpl<GS_SPRITE_CLASS, false>(bbox_scale);
+			break;
+		default:
+			pxAssert(false);
+			return;
+	}
+}
+
 GSState::PRIM_OVERLAP GSState::PrimitiveOverlap(bool save_drawlist)
 {
 	// Assume that 1 triangle, 1 sprite, 1 line, or 3 points can't overlap.
@@ -5753,10 +5810,10 @@ bool GSState::CheckOverlapVerts(u32 n)
 
 			if (m_index->tail > 0)
 			{
-				int matching_verts = 0;
+				u32 matching_verts = 0;
 				for (u32 i = 0; i < n; i++)
 				{
-					const int pos = m_index->buff[(m_index->tail - n) + i];
+					const u32 pos = m_index->buff[(m_index->tail - n) + i];
 					const GSVector2i prev_vert = GSVector2i(v[pos].XYZ.X - m_context->XYOFFSET.OFX, v[pos].XYZ.Y - m_context->XYOFFSET.OFY);
 
 					for (u32 j = 0; j < n; j++)

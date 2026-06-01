@@ -414,40 +414,56 @@ bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 	{
 		GL_PUSH("GSDeviceOGL::Convert");
 
-
-
 		m_convert.vs = GetShaderSource("vs_main", GL_VERTEX_SHADER, *convert_glsl);
 
-		for (size_t i = 0; i < std::size(m_convert.ps); i++)
+		m_convert.ps.resize(ShaderConvertSelector::NUM_TOTAL_SHADERS);
+		for (u32 i = 0; i < ShaderConvertSelector::NUM_TOTAL_SHADERS; i++)
 		{
-			const char* name = shaderName(static_cast<ShaderConvert>(i));
-			const std::string ps(GetShaderSource(name, GL_FRAGMENT_SHADER, *convert_glsl));
-			if (!m_shader_cache.GetProgram(&m_convert.ps[i], m_convert.vs, ps))
-				return false;
-			m_convert.ps[i].SetFormattedName("Convert pipe %s", name);
+			const ShaderConvertSelector shader = ShaderConvertSelector::Get(i);
 
-			if (static_cast<ShaderConvert>(i) == ShaderConvert::RGBA_TO_8I || static_cast<ShaderConvert>(i) == ShaderConvert::RGB5A1_TO_8I)
+			const char* name = shader.EntryPoint();
+
+			std::string macro;
+			macro += fmt::format("#define HAS_BILN {}\n", static_cast<int>(shader.Biln()));
+			macro += fmt::format("#define HAS_STENCIL_OUTPUT {}\n", static_cast<int>(shader.StencilOutput()));
+			macro += fmt::format("#define HAS_INTEGER_OUTPUT {}\n", static_cast<int>(shader.IntegerOutputBpp() != 0));
+			macro += fmt::format("#define HAS_DEPTH_OUTPUT {}\n", static_cast<int>(shader.DepthOutput()));
+			macro += fmt::format("#define HAS_FLOAT32_INPUT {}\n", static_cast<int>(shader.Float32Input()));
+			macro += fmt::format("#define HAS_FLOAT32_OUTPUT {}\n", static_cast<int>(shader.Float32Output()));
+
+			const std::string ps(GetShaderSource(name, GL_FRAGMENT_SHADER, *convert_glsl, macro));
+
+			GLProgram& prog = m_convert.ps[i];
+
+			if (!m_shader_cache.GetProgram(&prog, m_convert.vs, ps))
+				return false;
+
+			prog.SetFormattedName("Convert pipeline (%s, mask=%x, depth=%d, biln=%d)",
+				shader.Name(), shader.Mask(), static_cast<int>(shader.DepthOutput()),
+				static_cast<int>(shader.Biln()));
+
+			if (shader.Shader() == ShaderConvert::RGBA_TO_8I || shader.Shader() == ShaderConvert::RGB5A1_TO_8I)
 			{
-				m_convert.ps[i].RegisterUniform("SBW");
-				m_convert.ps[i].RegisterUniform("DBW");
-				m_convert.ps[i].RegisterUniform("PSM");
-				m_convert.ps[i].RegisterUniform("ScaleFactor");
+				prog.RegisterUniform("SBW");
+				prog.RegisterUniform("DBW");
+				prog.RegisterUniform("PSM");
+				prog.RegisterUniform("ScaleFactor");
 			}
-			else if (static_cast<ShaderConvert>(i) == ShaderConvert::YUV)
+			else if (shader.Shader() == ShaderConvert::YUV)
 			{
-				m_convert.ps[i].RegisterUniform("EMOD");
+				prog.RegisterUniform("EMOD");
 			}
-			else if (static_cast<ShaderConvert>(i) == ShaderConvert::CLUT_4 || static_cast<ShaderConvert>(i) == ShaderConvert::CLUT_8)
+			else if (shader.Shader() == ShaderConvert::CLUT_4 || shader.Shader() == ShaderConvert::CLUT_8)
 			{
-				m_convert.ps[i].RegisterUniform("offset");
-				m_convert.ps[i].RegisterUniform("scale");
+				prog.RegisterUniform("offset");
+				prog.RegisterUniform("scale");
 			}
-			else if (static_cast<ShaderConvert>(i) == ShaderConvert::DOWNSAMPLE_COPY)
+			else if (shader.Shader() == ShaderConvert::DOWNSAMPLE_COPY)
 			{
-				m_convert.ps[i].RegisterUniform("ClampMin");
-				m_convert.ps[i].RegisterUniform("DownsampleFactor");
-				m_convert.ps[i].RegisterUniform("Weight");
-				m_convert.ps[i].RegisterUniform("StepMultiplier");
+				prog.RegisterUniform("ClampMin");
+				prog.RegisterUniform("DownsampleFactor");
+				prog.RegisterUniform("Weight");
+				prog.RegisterUniform("StepMultiplier");
 			}
 		}
 
@@ -482,7 +498,7 @@ bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 
 		for (size_t i = 0; i < std::size(m_present); i++)
 		{
-			const char* name = shaderName(static_cast<PresentShader>(i));
+			const char* name = ShaderEntryPoint(static_cast<PresentShader>(i));
 			const std::string ps(GetShaderSource(name, GL_FRAGMENT_SHADER, *shader));
 			if (!m_shader_cache.GetProgram(&m_present[i], present_vs, ps))
 				return false;
@@ -586,7 +602,7 @@ bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 		for (size_t i = 0; i < std::size(m_date.primid_ps); i++)
 		{
 			const std::string ps(GetShaderSource(
-				fmt::format("ps_stencil_image_init_{}", i),
+				fmt::format("ps_primid_image_init_{}", i),
 				GL_FRAGMENT_SHADER, *convert_glsl));
 			m_shader_cache.GetProgram(&m_date.primid_ps[i], m_convert.vs, ps);
 			m_date.primid_ps[i].SetFormattedName("PrimID Destination Alpha Init %d", i);
@@ -942,8 +958,9 @@ void GSDeviceOGL::DestroyResources()
 	for (GLProgram& prog : m_present)
 		prog.Destroy();
 
-	for (GLProgram& prog : m_convert.ps)
+	for (auto& prog : m_convert.ps)
 		prog.Destroy();
+
 	delete m_convert.dss;
 	delete m_convert.dss_write;
 
@@ -1271,7 +1288,7 @@ void GSDeviceOGL::CommitClear(GSTexture* t, bool use_write_fbo)
 	{
 		glDisable(GL_SCISSOR_TEST);
 
-		if (T->GetType() == GSTexture::Type::DepthStencil)
+		if (T->IsDepthStencil())
 		{
 			const float d = T->GetClearDepth();
 			if (GLState::depth_mask)
@@ -1290,7 +1307,7 @@ void GSDeviceOGL::CommitClear(GSTexture* t, bool use_write_fbo)
 			const u32 old_color_mask = GLState::wrgba;
 			OMSetColorMaskState();
 
-			const GSVector4 c_unorm = T->GetUNormClearColor();
+			const GSVector4 c_unorm = T->GetClearForFormat();
 
 			if (T->IsIntegerFormat())
 			{
@@ -1407,7 +1424,7 @@ GSTexture* GSDeviceOGL::InitPrimDateTexture(GSTexture* rt, const GSVector4i& are
 		return nullptr;
 
 	GL_PUSH("PrimID Destination Alpha Clear");
-	DoStretchRect(rt, GSVector4(area) / GSVector4(rtsize).xyxy(), tex, GSVector4(area), m_date.primid_ps[static_cast<u8>(datm)], false);
+	DoStretchRect(rt, GSVector4(area) / GSVector4(rtsize).xyxy(), tex, GSVector4(area), m_date.primid_ps[static_cast<u8>(datm)], Nearest);
 	return tex;
 }
 
@@ -1584,7 +1601,7 @@ std::string GSDeviceOGL::GetPSSource(const PSSelector& sel)
 }
 
 // Copy a sub part of texture (same as below but force a conversion)
-void GSDeviceOGL::BlitRect(GSTexture* sTex, const GSVector4i& r, const GSVector2i& dsize, bool at_origin, bool linear)
+void GSDeviceOGL::BlitRect(GSTexture* sTex, const GSVector4i& r, const GSVector2i& dsize, bool at_origin, Filter filter)
 {
 	g_perfmon.Put(GSPerfMon::TextureCopies, 1);
 
@@ -1598,12 +1615,12 @@ void GSDeviceOGL::BlitRect(GSTexture* sTex, const GSVector4i& r, const GSVector2
 
 	const GSVector4 float_r(r);
 
-	m_convert.ps[static_cast<int>(ShaderConvert::COPY)].Bind();
+	GetConvertProgram(ShaderConvert::COPY).Bind();
 	OMSetDepthStencilState(m_convert.dss);
 	OMSetBlendState();
 	OMSetColorMaskState();
 	PSSetShaderResource(0, sTex);
-	PSSetSamplerState(linear ? m_convert.ln : m_convert.pt);
+	PSSetSamplerState(filter == Biln ? m_convert.ln : m_convert.pt);
 	DrawStretchRect(float_r / (GSVector4(sTex->GetSize()).xyxy()), float_r, dsize);
 
 	glEnable(GL_SCISSOR_TEST);
@@ -1656,19 +1673,22 @@ void GSDeviceOGL::CopyRect(GSTexture* sTex, GSTexture* dTex, const GSVector4i& r
 }
 
 void GSDeviceOGL::DoStretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect,
-	OMColorMaskSelector cms, ShaderConvert shader, bool linear)
+	ShaderConvertSelector shader, Filter filter)
 {
-	DoStretchRect(sTex, sRect, dTex, dRect, m_convert.ps[static_cast<int>(shader)], false, cms, linear);
+	const u8 mask = shader.Mask();
+	shader = shader.SetMask(); // Mask is handled separately from program.
+	filter = shader.SupportsBilinear() ? Nearest : filter; // Don't allow HW bilinear if SW bilinear is needed.
+	DoStretchRect(sTex, sRect, dTex, dRect, GetConvertProgram(shader), false, OMColorMaskSelector(mask), filter);
 }
 
 void GSDeviceOGL::DoStretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect,
-	const GLProgram& ps, bool linear)
+	const GLProgram& ps, Filter filter)
 {
-	DoStretchRect(sTex, sRect, dTex, dRect, ps, false, OMColorMaskSelector(), linear);
+	DoStretchRect(sTex, sRect, dTex, dRect, ps, false, OMColorMaskSelector(), filter);
 }
 
 void GSDeviceOGL::DoStretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect,
-	const GLProgram& ps, bool alpha_blend, OMColorMaskSelector cms, bool linear)
+	const GLProgram& ps, bool alpha_blend, OMColorMaskSelector cms, Filter filter)
 {
 	CommitClear(sTex, true);
 
@@ -1703,7 +1723,7 @@ void GSDeviceOGL::DoStretchRect(GSTexture* sTex, const GSVector4& sRect, GSTextu
 	// ************************************
 
 	PSSetShaderResource(0, sTex);
-	PSSetSamplerState(linear ? m_convert.ln : m_convert.pt);
+	PSSetSamplerState(filter == Biln ? m_convert.ln : m_convert.pt);
 
 	// ************************************
 	// Draw
@@ -1711,7 +1731,7 @@ void GSDeviceOGL::DoStretchRect(GSTexture* sTex, const GSVector4& sRect, GSTextu
 	DrawStretchRect(sRect, dRect, dTex->GetSize());
 }
 
-void GSDeviceOGL::PresentRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect, PresentShader shader, float shaderTime, bool linear)
+void GSDeviceOGL::PresentRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect, PresentShader shader, float shaderTime, Filter filter)
 {
 	CommitClear(sTex, true);
 
@@ -1738,7 +1758,7 @@ void GSDeviceOGL::PresentRect(GSTexture* sTex, const GSVector4& sRect, GSTexture
 	OMSetColorMaskState();
 
 	PSSetShaderResource(0, sTex);
-	PSSetSamplerState(linear ? m_convert.ln : m_convert.pt);
+	PSSetSamplerState(filter == Biln ? m_convert.ln : m_convert.pt);
 
 	// Flip y axis only when we render in the backbuffer
 	// By default everything is render in the wrong order (ie dx).
@@ -1754,7 +1774,7 @@ void GSDeviceOGL::UpdateCLUTTexture(GSTexture* sTex, float sScale, u32 offsetX, 
 	CommitClear(sTex, false);
 
 	const ShaderConvert shader = (dSize == 16) ? ShaderConvert::CLUT_4 : ShaderConvert::CLUT_8;
-	GLProgram& prog = m_convert.ps[static_cast<int>(shader)];
+	GLProgram& prog = GetConvertProgram(shader);
 	prog.Bind();
 	prog.Uniform3ui(0, offsetX, offsetY, dOffset);
 	prog.Uniform1f(1, sScale);
@@ -1776,7 +1796,7 @@ void GSDeviceOGL::ConvertToIndexedTexture(GSTexture* sTex, float sScale, u32 off
 	CommitClear(sTex, false);
 
 	const ShaderConvert shader = ((SPSM & 0xE) == 0) ? ShaderConvert::RGBA_TO_8I : ShaderConvert::RGB5A1_TO_8I;
-	GLProgram& prog = m_convert.ps[static_cast<int>(shader)];
+	GLProgram& prog = GetConvertProgram(shader);
 	prog.Bind();
 	prog.Uniform1ui(0, SBW);
 	prog.Uniform1ui(1, DBW);
@@ -1800,7 +1820,7 @@ void GSDeviceOGL::FilteredDownsampleTexture(GSTexture* sTex, GSTexture* dTex, u3
 	CommitClear(sTex, false);
 
 	constexpr ShaderConvert shader = ShaderConvert::DOWNSAMPLE_COPY;
-	GLProgram& prog = m_convert.ps[static_cast<int>(shader)];
+	GLProgram& prog = GetConvertProgram(shader);
 	prog.Bind();
 	prog.Uniform2iv(0, clamp_min.v);
 	prog.Uniform1i(1, downsample_factor);
@@ -1846,22 +1866,24 @@ void GSDeviceOGL::DrawStretchRect(const GSVector4& sRect, const GSVector4& dRect
 }
 
 void GSDeviceOGL::DrawMultiStretchRects(
-	const MultiStretchRect* rects, u32 num_rects, GSTexture* dTex, ShaderConvert shader)
+	const MultiStretchRect* rects, u32 num_rects, GSTexture* dTex, ShaderConvertSelector shader)
 {
+	shader = shader.SetMask(); // Mask is handled separately from program.
+
 	IASetVAO(m_vao);
 	IASetPrimitiveTopology(GL_TRIANGLE_STRIP);
-	OMSetDepthStencilState(HasDepthOutput(shader) ? m_convert.dss_write : m_convert.dss);
+	OMSetDepthStencilState(shader.DepthOutput() ? m_convert.dss_write : m_convert.dss);
 	OMSetBlendState(false);
 	OMSetColorMaskState();
 	if (!dTex->IsDepthStencil())
 		OMSetRenderTargets(dTex, nullptr, nullptr);
 	else
 		OMSetRenderTargets(nullptr, nullptr, dTex);
-	m_convert.ps[static_cast<int>(shader)].Bind();
+	GetConvertProgram(shader).Bind();
 
 	const GSVector2 ds(static_cast<float>(dTex->GetWidth()), static_cast<float>(dTex->GetHeight()));
 	GSTexture* last_tex = rects[0].src;
-	bool last_linear = rects[0].linear;
+	Filter last_filter = rects[0].filter;
 	u8 last_wmask = rects[0].wmask.wrgba;
 
 	u32 first = 0;
@@ -1869,7 +1891,7 @@ void GSDeviceOGL::DrawMultiStretchRects(
 
 	for (u32 i = 1; i < num_rects; i++)
 	{
-		if (rects[i].src == last_tex && rects[i].linear == last_linear && rects[i].wmask.wrgba == last_wmask)
+		if (rects[i].src == last_tex && rects[i].filter == last_filter && rects[i].wmask.wrgba == last_wmask)
 		{
 			count++;
 			continue;
@@ -1877,7 +1899,7 @@ void GSDeviceOGL::DrawMultiStretchRects(
 
 		DoMultiStretchRects(rects + first, count, ds);
 		last_tex = rects[i].src;
-		last_linear = rects[i].linear;
+		last_filter = rects[i].filter;
 		last_wmask = rects[i].wmask.wrgba;
 		first += count;
 		count = 1;
@@ -1937,12 +1959,12 @@ void GSDeviceOGL::DoMultiStretchRects(const MultiStretchRect* rects, u32 num_rec
 	m_index_stream_buffer->Unmap(icount * sizeof(u16));
 
 	PSSetShaderResource(0, rects[0].src);
-	PSSetSamplerState(rects[0].linear ? m_convert.ln : m_convert.pt);
+	PSSetSamplerState(rects[0].filter == Biln ? m_convert.ln : m_convert.pt);
 	OMSetColorMaskState(rects[0].wmask);
 	DrawIndexedPrimitive();
 }
 
-void GSDeviceOGL::DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, u32 c, const bool linear)
+void GSDeviceOGL::DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, u32 c, const Filter filter)
 {
 	GL_PUSH("DoMerge");
 
@@ -1961,20 +1983,20 @@ void GSDeviceOGL::DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex,
 	{
 		// 2nd output is enabled and selected. Copy it to destination so we can blend it with 1st output
 		// Note: value outside of dRect must contains the background color (c)
-		StretchRect(sTex[1], sRect[1], dTex, PMODE.SLBG ? dRect[2] : dRect[1], ShaderConvert::COPY, linear);
+		StretchRect(sTex[1], sRect[1], dTex, PMODE.SLBG ? dRect[2] : dRect[1], ShaderConvert::COPY, filter);
 	}
 
 	// Upload constant to select YUV algo
 	if (feedback_write_2 || feedback_write_1)
 	{
 		// Write result to feedback loop
-		m_convert.ps[static_cast<int>(ShaderConvert::YUV)].Bind();
-		m_convert.ps[static_cast<int>(ShaderConvert::YUV)].Uniform2i(0, EXTBUF.EMODA, EXTBUF.EMODC);
+		GetConvertProgram(ShaderConvert::YUV).Bind();
+		GetConvertProgram(ShaderConvert::YUV).Uniform2i(0, EXTBUF.EMODA, EXTBUF.EMODC);
 	}
 
 	// Save 2nd output
 	if (feedback_write_2)
-		StretchRect(dTex, full_r, sTex[2], dRect[2], ShaderConvert::YUV, linear);
+		StretchRect(dTex, full_r, sTex[2], dRect[2], ShaderConvert::YUV, filter);
 
 	// Restore background color to process the normal merge
 	if (feedback_write_2_but_blend_bg)
@@ -1991,27 +2013,27 @@ void GSDeviceOGL::DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex,
 			// Blend with a constant alpha
 			m_merge_obj.ps[1].Bind();
 			m_merge_obj.ps[1].Uniform4fv(0, GSVector4::unorm8(c).v);
-			DoStretchRect(sTex[0], sRect[0], dTex, dRect[0], m_merge_obj.ps[1], true, OMColorMaskSelector(), linear);
+			DoStretchRect(sTex[0], sRect[0], dTex, dRect[0], m_merge_obj.ps[1], true, OMColorMaskSelector(), filter);
 		}
 		else
 		{
 			// Blend with 2 * input alpha
-			DoStretchRect(sTex[0], sRect[0], dTex, dRect[0], m_merge_obj.ps[0], true, OMColorMaskSelector(), linear);
+			DoStretchRect(sTex[0], sRect[0], dTex, dRect[0], m_merge_obj.ps[0], true, OMColorMaskSelector(), filter);
 		}
 	}
 
 	if (feedback_write_1)
-		StretchRect(dTex, full_r, sTex[2], dRect[2], ShaderConvert::YUV, linear);
+		StretchRect(dTex, full_r, sTex[2], dRect[2], ShaderConvert::YUV, filter);
 }
 
-void GSDeviceOGL::DoInterlace(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect, ShaderInterlace shader, bool linear, const InterlaceConstantBuffer& cb)
+void GSDeviceOGL::DoInterlace(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect, ShaderInterlace shader, Filter filter, const InterlaceConstantBuffer& cb)
 {
 	OMSetColorMaskState();
 
 	m_interlace.ps[static_cast<int>(shader)].Bind();
 	m_interlace.ps[static_cast<int>(shader)].Uniform4fv(0, cb.ZrH.F32);
 
-	DoStretchRect(sTex, sRect, dTex, dRect, m_interlace.ps[static_cast<int>(shader)], linear);
+	DoStretchRect(sTex, sRect, dTex, dRect, m_interlace.ps[static_cast<int>(shader)], filter);
 }
 
 bool GSDeviceOGL::CompileFXAAProgram()
@@ -2050,7 +2072,7 @@ void GSDeviceOGL::DoFXAA(GSTexture* sTex, GSTexture* dTex)
 	const GSVector4 sRect(0, 0, 1, 1);
 	const GSVector4 dRect(0, 0, s.x, s.y);
 
-	DoStretchRect(sTex, sRect, dTex, dRect, m_fxaa.ps, true);
+	DoStretchRect(sTex, sRect, dTex, dRect, m_fxaa.ps, Biln);
 }
 
 bool GSDeviceOGL::CompileShadeBoostProgram()
@@ -2084,7 +2106,7 @@ void GSDeviceOGL::DoShadeBoost(GSTexture* sTex, GSTexture* dTex, const float par
 	const GSVector4 sRect(0, 0, 1, 1);
 	const GSVector4 dRect(0, 0, s.x, s.y);
 
-	DoStretchRect(sTex, sRect, dTex, dRect, m_shadeboost.ps, false);
+	DoStretchRect(sTex, sRect, dTex, dRect, m_shadeboost.ps, Nearest);
 }
 
 void GSDeviceOGL::SetupDATE(GSTexture* rt, GSTexture* ds, SetDATM datm, const GSVector4i& bbox)
@@ -2100,7 +2122,7 @@ void GSDeviceOGL::SetupDATE(GSTexture* rt, GSTexture* ds, SetDATM datm, const GS
 		constexpr GLint clear_color = 0;
 		glClearBufferiv(GL_STENCIL, 0, &clear_color);
 	}
-	m_convert.ps[SetDATMShader(datm)].Bind();
+	GetConvertProgram(SetDATMShader(datm)).Bind();
 
 	// om
 
@@ -2704,7 +2726,7 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 			const GSVector2i size = config.rt->GetSize();
 			const GSVector4 dRect(config.colclip_update_area);
 			const GSVector4 sRect = dRect / GSVector4(size.x, size.y).xyxy();
-			StretchRect(colclip_rt, sRect, config.rt, dRect, ShaderConvert::COLCLIP_RESOLVE, false);
+			StretchRect(colclip_rt, sRect, config.rt, dRect, ShaderConvert::COLCLIP_RESOLVE, Nearest);
 			Recycle(colclip_rt);
 
 			g_gs_device->SetColorClipTexture(nullptr);
@@ -2738,7 +2760,7 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 
 			const GSVector4 dRect = GSVector4((config.colclip_mode == GSHWDrawConfig::ColClipMode::ConvertOnly) ? GSVector4i::loadh(rtsize) : config.drawarea);
 			const GSVector4 sRect = dRect / GSVector4(rtsize.x, rtsize.y).xyxy();
-			StretchRect(config.rt, sRect, colclip_rt, dRect, ShaderConvert::COLCLIP_INIT, false);
+			StretchRect(config.rt, sRect, colclip_rt, dRect, ShaderConvert::COLCLIP_INIT, Nearest);
 		}
 	}
 
@@ -2963,6 +2985,12 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 		constexpr GLint clear_color = 1;
 		glClearBufferiv(GL_STENCIL, 0, &clear_color);
 	}
+	else if (draw_ds && !(config.destination_alpha == GSHWDrawConfig::DestinationAlphaMode::Stencil ||
+			config.destination_alpha == GSHWDrawConfig::DestinationAlphaMode::StencilOne))
+	{
+		const GLenum attachments[] = {GL_STENCIL_ATTACHMENT};
+		glInvalidateFramebuffer(GL_DRAW_FRAMEBUFFER, std::size(attachments), attachments);
+	}
 
 	SendHWDraw(config, rt_feedbackloop_pass1 ? draw_rt_clone : nullptr, draw_rt, ds_feedbackloop_pass1 ? draw_ds_clone : nullptr, draw_ds,
 		config.require_one_barrier, config.require_full_barrier);
@@ -3025,11 +3053,62 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 			const GSVector2i size = config.rt->GetSize();
 			const GSVector4 dRect(config.colclip_update_area);
 			const GSVector4 sRect = dRect / GSVector4(size.x, size.y).xyxy();
-			StretchRect(colclip_rt, sRect, config.rt, dRect, ShaderConvert::COLCLIP_RESOLVE, false);
+			StretchRect(colclip_rt, sRect, config.rt, dRect, ShaderConvert::COLCLIP_RESOLVE, Nearest);
 			Recycle(colclip_rt);
 
 			g_gs_device->SetColorClipTexture(nullptr);
 		}
+	}
+}
+
+void GSDeviceOGL::FeedbackCopyAndBind(const GSHWDrawConfig& config,
+	GSTexture* rt, GSTexture* rt_clone, GSTexture* ds, GSTexture* ds_clone, const GSVector4i& copyarea)
+{
+	if (rt_clone)
+	{
+		CopyRect(rt, rt_clone, copyarea, copyarea.left, copyarea.top);
+		PSSetShaderResource(2, rt_clone);
+		if (config.tex_hazard == GSHWDrawConfig::TEX_HAZARD_RT)
+			PSSetShaderResource(0, rt_clone);
+	}
+	if (ds_clone)
+	{
+		CopyRect(ds, ds_clone, copyarea, copyarea.left, copyarea.top);
+		PSSetShaderResource(4, ds_clone);
+		if (config.tex_hazard == GSHWDrawConfig::TEX_HAZARD_DEPTH)
+			PSSetShaderResource(0, ds_clone);
+	}
+}
+
+// Choose the best copy area based on the hazards and whether we need RT and/or DS copies.
+void GSDeviceOGL::FeedbackCopyAndBind(const GSHWDrawConfig& config,
+	GSTexture* rt, GSTexture* rt_clone, GSTexture* ds, GSTexture* ds_clone,
+	const GSVector4i& copyarea, const GSVector4i& samplearea)
+{
+	const GSVector4i rtsize = (rt ? rt : ds)->GetRect();
+
+	if (config.tex_hazard != GSHWDrawConfig::TEX_HAZARD_NONE)
+	{
+		const GSVector4i union_rect = config.drawarea.runion(config.samplearea);
+		const u32 size_union = union_rect.width() * union_rect.height();
+		const u32 size_indiv = config.drawarea.width() * config.drawarea.height() +
+			config.samplearea.width() * config.samplearea.height();
+
+		// Do an individual copy if the union is larger than the sum of individual areas.
+		if (size_union > size_indiv)
+		{
+			FeedbackCopyAndBind(config, rt, rt_clone, ds, ds_clone, ProcessCopyArea(rtsize, config.drawarea));
+			FeedbackCopyAndBind(config, rt, rt_clone, ds, ds_clone, ProcessCopyArea(rtsize, config.samplearea));
+		}
+		else
+		{
+			FeedbackCopyAndBind(config, rt, rt_clone, ds, ds_clone, ProcessCopyArea(rtsize, union_rect));
+		}
+	}
+	else
+	{
+		// No RT/DS hazards so just need the draw area.
+		FeedbackCopyAndBind(config, rt, rt_clone, ds, ds_clone, ProcessCopyArea(rtsize, config.drawarea));
 	}
 }
 
@@ -3041,27 +3120,6 @@ void GSDeviceOGL::SendHWDraw(const GSHWDrawConfig& config,
 	if ((one_barrier || full_barrier) && !(config.IsFeedbackLoopRT(config.ps) || config.IsFeedbackLoopDepth(config.ps))) [[unlikely]]
 		Console.Warning("OpenGL: Possible unnecessary barrier detected.");
 #endif
-
-	auto CopyAndBind = [&](GSVector4i drawarea) {
-		if (draw_rt_clone)
-		{
-			CopyRect(draw_rt, draw_rt_clone, drawarea, drawarea.left, drawarea.top);
-			if ((one_barrier || full_barrier))
-				PSSetShaderResource(2, draw_rt_clone);
-			if (config.tex_hazard == GSHWDrawConfig::TEX_HAZARD_RT)
-				PSSetShaderResource(0, draw_rt_clone);
-		}
-		if (draw_ds_clone)
-		{
-			CopyRect(draw_ds, draw_ds_clone, drawarea, drawarea.left, drawarea.top);
-			if ((one_barrier || full_barrier))
-				PSSetShaderResource(4, draw_ds_clone);
-			if (config.tex_hazard == GSHWDrawConfig::TEX_HAZARD_DEPTH)
-				PSSetShaderResource(0, draw_ds_clone);
-		}
-	};
-
-	const GSVector4i rtsize(0, 0, (draw_rt ? draw_rt : draw_ds)->GetWidth(), (draw_rt ? draw_rt : draw_ds)->GetHeight());
 
 	if (full_barrier)
 	{
@@ -3077,7 +3135,7 @@ void GSDeviceOGL::SendHWDraw(const GSHWDrawConfig& config,
 
 		for (u32 n = 0, p = 0; n < draw_list_size; n++)
 		{
-			const u32 count = (*config.drawlist)[n] * indices_per_prim;
+			const u32 count = config.drawlist->at(n) * indices_per_prim;
 
 			if (m_features.texture_barrier)
 			{
@@ -3085,8 +3143,10 @@ void GSDeviceOGL::SendHWDraw(const GSHWDrawConfig& config,
 			}
 			else
 			{
-				const GSVector4i original_bbox = (*config.drawlist_bbox)[n].rintersect(config.drawarea);
-				CopyAndBind(ProcessCopyArea(rtsize, original_bbox));
+				const GSVector4i bbox = config.drawlist_bbox->at(n).rintersect(config.drawarea);
+				const GSVector4i bbox_tex = config.drawlist_bbox_tex ?
+					config.drawlist_bbox_tex->at(n).rintersect(config.samplearea) : GSVector4i::zero();
+				FeedbackCopyAndBind(config, draw_rt, draw_rt_clone, draw_ds, draw_ds_clone, bbox, bbox_tex);
 			}
 
 			Draw(config, p, count);
@@ -3106,28 +3166,7 @@ void GSDeviceOGL::SendHWDraw(const GSHWDrawConfig& config,
 		else
 		{
 			// Optimization: For alpha second pass we can reuse the copy snapshot from the first pass.
-			if (config.tex_hazard)
-			{
-				const GSVector4i union_rect = config.drawarea.runion(config.samplearea);
-				const u32 size_union = union_rect.width() * union_rect.height();
-				const u32 size_indiv = config.drawarea.width() * config.drawarea.height() +
-				                       config.samplearea.width() * config.samplearea.height();
-
-				// Do an individual copy if the union is larger than the sum of individual areas.
-				if (size_union > size_indiv)
-				{
-					CopyAndBind(ProcessCopyArea(rtsize, config.drawarea));
-					CopyAndBind(ProcessCopyArea(rtsize, config.samplearea));
-				}
-				else
-				{
-					CopyAndBind(ProcessCopyArea(rtsize, union_rect));
-				}
-			}
-			else
-			{
-				CopyAndBind(ProcessCopyArea(rtsize, config.drawarea));
-			}
+			FeedbackCopyAndBind(config, draw_rt, draw_rt_clone, draw_ds, draw_ds_clone, config.drawarea, config.samplearea);
 		}
 	}
 
