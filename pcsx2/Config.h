@@ -399,6 +399,7 @@ enum class SavestateCompressionLevel : u8
 enum class GSHardwareDownloadMode : u8
 {
 	Enabled,
+	EnabledForceFull,
 	NoReadbacks,
 	Unsynchronized,
 	Disabled
@@ -765,6 +766,7 @@ struct Pcsx2Config
 					DisableFramebufferFetch : 1,
 					DisableVertexShaderExpand : 1,
 					SkipDuplicateFrames : 1,
+					AdvancedFrameDisplay : 1,
 					OsdShowSpeed : 1,
 					OsdShowFPS : 1,
 					OsdShowVPS : 1,
@@ -773,6 +775,8 @@ struct Pcsx2Config
 					OsdShowCPU : 1,
 					OsdShowGPU : 1,
 					OsdShowGPUDebug : 1,
+					OsdShowGPUStats : 1,
+					OsdShowGPUShadersStats : 1,
 					OsdShowIndicators : 1,
 					OsdShowFrameTimes : 1,
 					OsdShowHardwareInfo : 1,
@@ -809,6 +813,8 @@ struct Pcsx2Config
 					UserHacks_NativePaletteDraw : 1,
 					UserHacks_EstimateTextureRegion : 1,
 					UserHacks_DrawBuffering : 1,
+					UserHacks_RewriteLargeSTCoords : 1,
+					UserHacks_TargetPageRearranging : 1,
 					FXAA : 1,
 					ShadeBoost : 1,
 					DumpGSData : 1,
@@ -822,6 +828,7 @@ struct Pcsx2Config
 					SaveDrawStats : 1,
 					SaveFrameStats : 1,
 					SaveHWConfig : 1,
+					DumpReplayUseFrameRange : 1,
 					DumpReplaceableTextures : 1,
 					DumpReplaceableMipmaps : 1,
 					DumpTexturesWithFMVActive : 1,
@@ -910,6 +917,10 @@ struct Pcsx2Config
 		int SaveFrameStart = 0;
 		int SaveFrameCount = -1;
 		int SaveFrameBy = 1;
+		int DumpReplayLoopCount = 0;
+		int DumpReplayFrameStart = 0;
+		int DumpReplayFrameEnd = 0;
+		u32 SavedMetricsCaptureSeconds = 10;
 
 		s8 ExclusiveFullscreenControl = -1;
 		GSScreenshotSize ScreenshotSize = GSScreenshotSize::WindowResolution;

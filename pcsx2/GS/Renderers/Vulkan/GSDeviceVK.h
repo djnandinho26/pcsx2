@@ -45,6 +45,7 @@ public:
 		bool vk_swapchain_maintenance1_is_khr : 1;
 		bool vk_khr_driver_properties : 1;
 		bool vk_khr_shader_non_semantic_info : 1;
+		bool vk_khr_synchronization2 : 1;
 		bool vk_ext_attachment_feedback_loop_layout : 1;
 		bool vk_ext_fragment_shader_interlock : 1;
 	};
@@ -62,8 +63,7 @@ public:
 	// The interaction between raster order attachment access and fbfetch is unclear.
 	__fi bool UseFeedbackLoopLayout() const
 	{
-		return m_optional_extensions.vk_ext_attachment_feedback_loop_layout &&
-		       !m_optional_extensions.vk_ext_rasterization_order_attachment_access;
+		return m_optional_extensions.vk_ext_attachment_feedback_loop_layout && !m_features.framebuffer_fetch;
 	}
 
 	// Helpers for getting constants
@@ -89,8 +89,8 @@ public:
 		VkAttachmentLoadOp depth_load_op = VK_ATTACHMENT_LOAD_OP_LOAD,
 		VkAttachmentStoreOp depth_store_op = VK_ATTACHMENT_STORE_OP_STORE,
 		VkAttachmentLoadOp stencil_load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		VkAttachmentStoreOp stencil_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE, bool color_feedback_loop = false,
-		bool depth_sampling = false);
+		VkAttachmentStoreOp stencil_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		bool color_feedback_loop = false, bool depth_feedback_loop = false);
 
 	// Gets a non-clearing version of the specified render pass. Slow, don't call in hot path.
 	VkRenderPass GetRenderPassForRestarting(VkRenderPass pass);
@@ -176,7 +176,7 @@ private:
 			u32 stencil_load_op : 2;
 			u32 stencil_store_op : 1;
 			u32 color_feedback_loop : 1;
-			u32 depth_sampling : 1;
+			u32 depth_feedback_loop : 1;
 		};
 
 		u32 key;
@@ -209,6 +209,13 @@ private:
 	void CalibrateSpinTimestamp();
 	u64 GetCPUTimestamp();
 
+	enum class QueryState
+	{
+		None,
+		Querying,
+		Ready,
+	};
+
 	struct FrameResources
 	{
 		// [0] - Init (upload) command buffer, [1] - draw command buffer
@@ -220,7 +227,8 @@ private:
 		u32 submit_timestamp = 0;
 		bool init_buffer_used = false;
 		bool needs_fence_wait = false;
-		bool timestamp_written = false;
+		QueryState timestamp_query_state = QueryState::None;
+		QueryState pipeline_statistics_query = QueryState::None;
 
 		std::vector<std::function<void()>> cleanup_resources;
 	};
@@ -277,6 +285,11 @@ private:
 	bool m_wants_new_timestamp_calibration = false;
 	VkTimeDomainEXT m_calibrated_timestamp_type = VK_TIME_DOMAIN_DEVICE_EXT;
 
+	VkQueryPool m_pipeline_statistics_query_pool = VK_NULL_HANDLE;
+	GPUPipelineStatistics m_accumulated_gpu_pipeline_statistics{};
+	bool m_gpu_pipeline_statistics_enabled = false;
+	bool m_gpu_pipeline_statistics_supported = false;
+
 	std::array<FrameResources, NUM_COMMAND_BUFFERS> m_frame_resources;
 	u64 m_next_fence_counter = 1;
 	u64 m_completed_fence_counter = 0;
@@ -293,6 +306,8 @@ private:
 	VkPhysicalDeviceDriverPropertiesKHR m_device_driver_properties = {};
 	OptionalExtensions m_optional_extensions = {};
 
+	u32 m_max_framebuffer_width = 0;
+	u32 m_max_framebuffer_height = 0;
 public:
 	enum FeedbackLoopFlag : u8
 	{
@@ -332,7 +347,6 @@ public:
 				u32 topology : 2;
 				u32 rt : 1;
 				u32 ds : 1;
-				u32 line_width : 1;
 				u32 feedback_loop_flags : 3;
 			};
 
@@ -457,8 +471,6 @@ private:
 
 	VkRenderPass m_tfx_render_pass[2][2][2][3][2][2][3][3] = {}; // [rt][ds][colclip][date][fbl][dsp][rt_op][ds_op]
 
-	VkDescriptorSetLayout m_cas_ds_layout = VK_NULL_HANDLE;
-	VkPipelineLayout m_cas_pipeline_layout = VK_NULL_HANDLE;
 	std::array<VkPipeline, NUM_CAS_PIPELINES> m_cas_pipelines = {};
 	VkPipeline m_imgui_pipeline = VK_NULL_HANDLE;
 
@@ -466,10 +478,10 @@ private:
 	GSHWDrawConfig::PSConstantBuffer m_ps_cb_cache;
 	GSHWDrawConfig::VSPushConstants m_vs_pc_cache;
 
+	std::string m_convert_source;
 	std::string m_tfx_source;
 
-	GSTexture* CreateSurface(
-		GSTexture::Type type, int width, int height, int levels, GSTexture::Format format) override;
+	GSTexture* CreateSurface(GSTexture::Usage usage, int width, int height, int levels, GSTexture::Format format) override;
 
 	void DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, const GSRegPMODE& PMODE,
 		const GSRegEXTBUF& EXTBUF, u32 c, const Filter filter) final;
@@ -533,10 +545,10 @@ public:
 	/// Returns true if Vulkan is suitable as a default for the devices in the system.
 	static bool IsSuitableDefaultRenderer();
 
-	__fi VkRenderPass GetTFXRenderPass(bool rt, bool ds, bool colclip, bool stencil, bool fbl, bool dsp,
-		VkAttachmentLoadOp rt_op, VkAttachmentLoadOp ds_op) const
+	__fi VkRenderPass GetTFXRenderPass(bool rt, bool ds, bool colclip, bool stencil,
+		bool rt_feedback, bool depth_feedback, VkAttachmentLoadOp rt_op, VkAttachmentLoadOp ds_op) const
 	{
-		return m_tfx_render_pass[rt][ds][colclip][stencil][fbl][dsp][rt_op][ds_op];
+		return m_tfx_render_pass[rt][ds][colclip][stencil][rt_feedback][depth_feedback][rt_op][ds_op];
 	}
 	__fi VkSampler GetPointSampler() const { return m_point_sampler; }
 	__fi VkSampler GetLinearSampler() const { return m_linear_sampler; }
@@ -560,7 +572,13 @@ public:
 	bool IsPresenting() const;
 
 	bool SetGPUTimingEnabled(bool enabled) override;
+	void StartGPUTiming(u32 index);
+	void EndGPUTiming(u32 index);
+	void ReadGPUTiming(u32 index);
 	float GetAndResetAccumulatedGPUTime() override;
+
+	bool SetGPUPipelineStatisticsEnabled(bool enabled) override;
+	GPUPipelineStatistics GetAndResetAccumulatedGPUPipelineStatistics() override;
 
 	void PushDebugGroup(const char* fmt, ...) override;
 	void PopDebugGroup() override;
@@ -608,7 +626,7 @@ public:
 	void IASetIndexBuffer(const void* index, size_t count);
 	void VSSetIndexBuffer(const void* index, size_t count);
 
-	void PSSetUnorderedAccess(GSTexture* rt, GSTexture* ds, bool write_rt, bool write_ds);
+	void PSSetROVs(GSTexture* rt, GSTexture* ds, bool write_rt, bool write_ds);
 	void PSSetShaderResource(int i, GSTexture* sr, bool check_state, ResourceType type = ResourceType::SRV);
 	void PSSetSampler(GSHWDrawConfig::SamplerSelector sel);
 
@@ -620,12 +638,14 @@ public:
 	void SetVSPushConstants(u32 base_vertex, u32 base_index = 0, bool force_update = false);
 	bool BindDrawPipeline(const PipelineSelector& p);
 
+	void ExternalFeedbackBarrier(GSTextureVK* tex);
 	void RenderHW(GSHWDrawConfig& config) override;
 	void UpdateHWPipelineSelector(GSHWDrawConfig& config, PipelineSelector& pipe);
 	void UploadHWDrawVerticesAndIndices(GSHWDrawConfig& config);
-	VkImageMemoryBarrier GetColorBufferFeedbackBarrier(GSTextureVK* rt) const;
-	VkImageMemoryBarrier GetDepthStencilBufferFeedbackBarrier(GSTextureVK* ds) const;
-	VkDependencyFlags GetFeedbackBarrierDependencyFlags() const;
+	VkImageLayout GetFeedbackLoopLayout() const;
+	VkDependencyFlags GetFeedbackBarrierDependencyFlags(bool by_region) const;
+	VkAccessFlags2 GetFeedbackLoopInputAccessFlags() const;
+	void FeedbackBarrier(GSTextureVK* rt, GSTextureVK* ds, bool by_region);
 	void SendHWDraw(const GSHWDrawConfig& config, GSTextureVK* draw_rt, GSTextureVK* draw_ds,
 		bool one_barrier, bool full_barrier);
 
@@ -668,7 +688,9 @@ public:
 	void BeginClearRenderPass(VkRenderPass rp, const GSVector4i& rect, const VkClearValue* cv, u32 cv_count);
 	void BeginClearRenderPass(VkRenderPass rp, const GSVector4i& rect, u32 clear_color);
 	void BeginClearRenderPass(VkRenderPass rp, const GSVector4i& rect, float depth, u8 stencil);
+	bool BeginPresentRenderPass(VkRenderPass rp, const GSVector4i& rect, GSTextureVK* swap_chain);
 	void EndRenderPass();
+	void EndPresentRenderPass();
 
 	void SetViewport(const VkViewport& viewport);
 	void SetScissor(const GSVector4i& scissor);

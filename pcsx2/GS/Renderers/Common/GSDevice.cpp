@@ -49,12 +49,15 @@ const char* ShaderEntryPoint(ShaderConvert value)
 		case ShaderConvert::RGB5A1_TO_DEPTH16:      return "ps_convert_rgb5a1_depth16";
 		case ShaderConvert::DEPTH32_TO_DEPTH24:     return "ps_convert_depth32_depth24";
 		case ShaderConvert::DEPTH_COPY:             return "ps_depth_copy";
+		case ShaderConvert::PRIMID_TO_RGBA8:        return "ps_convert_primid_rgba8";
 		case ShaderConvert::DOWNSAMPLE_COPY:        return "ps_downsample_copy";
 		case ShaderConvert::RGBA_TO_8I:             return "ps_convert_rgba_8i";
 		case ShaderConvert::RGB5A1_TO_8I:           return "ps_convert_rgb5a1_8i";
 		case ShaderConvert::CLUT_4:                 return "ps_convert_clut_4";
 		case ShaderConvert::CLUT_8:                 return "ps_convert_clut_8";
 		case ShaderConvert::YUV:                    return "ps_yuv";
+		case ShaderConvert::GAUSSIAN_BLUR_H:        return "ps_gaussian_blur_h";
+		case ShaderConvert::GAUSSIAN_BLUR_V:        return "ps_gaussian_blur_v";
 		// clang-format on
 		default:
 			pxAssert(0);
@@ -109,12 +112,15 @@ const char* ShaderConvertName(ShaderConvert shader)
 		ENTRY(RGBA8_TO_DEPTH16);
 		ENTRY(RGB5A1_TO_DEPTH16);
 		ENTRY(DEPTH32_TO_DEPTH24);
+		ENTRY(PRIMID_TO_RGBA8);
 		ENTRY(DOWNSAMPLE_COPY);
 		ENTRY(RGBA_TO_8I);
 		ENTRY(RGB5A1_TO_8I);
 		ENTRY(CLUT_4);
 		ENTRY(CLUT_8);
 		ENTRY(YUV);
+		ENTRY(GAUSSIAN_BLUR_H);
+		ENTRY(GAUSSIAN_BLUR_V);
 		case ShaderConvert::Count: break;
 	}
 	#undef ENTRY
@@ -144,53 +150,59 @@ enum class TextureLabel
 
 static std::array<u32, static_cast<u32>(TextureLabel::Last) + 1> s_texture_counts;
 
-static TextureLabel GetTextureLabel(GSTexture::Type type, GSTexture::Format format)
+static TextureLabel GetTextureLabel(GSTexture::Usage usage, GSTexture::Format format)
 {
-	switch (type)
+	if (GSTexture::IsRenderTarget(usage))
 	{
-		case GSTexture::Type::RenderTarget:
-			switch (format)
-			{
-				case GSTexture::Format::Color:
-					return TextureLabel::ColorRT;
-				case GSTexture::Format::ColorHQ:
-					return TextureLabel::ColorHQRT;
-				case GSTexture::Format::ColorHDR:
-					return TextureLabel::ColorHDRRT;
-				case GSTexture::Format::ColorClip:
-					return TextureLabel::ColorClipRT;
-				case GSTexture::Format::UInt16:
-					return TextureLabel::U16RT;
-				case GSTexture::Format::UInt32:
-					return TextureLabel::U32RT;
-				case GSTexture::Format::PrimID:
-					return TextureLabel::PrimIDTexture;
-				default:
-					return TextureLabel::Other;
-			}
-		case GSTexture::Type::Texture:
-			switch (format)
-			{
-				case GSTexture::Format::Color:
-					return TextureLabel::Texture;
-				case GSTexture::Format::UNorm8:
-					return TextureLabel::CLUTTexture;
-				case GSTexture::Format::BC1:
-				case GSTexture::Format::BC2:
-				case GSTexture::Format::BC3:
-				case GSTexture::Format::BC7:
-				case GSTexture::Format::ColorHDR:
-					return TextureLabel::ReplacementTexture;
-				default:
-					return TextureLabel::Other;
-			}
-		case GSTexture::Type::DepthStencil:
-			return TextureLabel::DepthStencil;
-		case GSTexture::Type::RWTexture:
-			return TextureLabel::RWTexture;
-		case GSTexture::Type::Invalid:
-		default:
-			return TextureLabel::Other;
+		switch (format)
+		{
+			case GSTexture::Format::Color:
+				return TextureLabel::ColorRT;
+			case GSTexture::Format::ColorHQ:
+				return TextureLabel::ColorHQRT;
+			case GSTexture::Format::ColorHDR:
+				return TextureLabel::ColorHDRRT;
+			case GSTexture::Format::ColorClip:
+				return TextureLabel::ColorClipRT;
+			case GSTexture::Format::UInt16:
+				return TextureLabel::U16RT;
+			case GSTexture::Format::UInt32:
+				return TextureLabel::U32RT;
+			case GSTexture::Format::PrimID:
+				return TextureLabel::PrimIDTexture;
+			default:
+				return TextureLabel::Other;
+		}
+	}
+	else if (GSTexture::IsTexture(usage))
+	{
+		switch (format)
+		{
+			case GSTexture::Format::Color:
+				return TextureLabel::Texture;
+			case GSTexture::Format::UNorm8:
+				return TextureLabel::CLUTTexture;
+			case GSTexture::Format::BC1:
+			case GSTexture::Format::BC2:
+			case GSTexture::Format::BC3:
+			case GSTexture::Format::BC7:
+			case GSTexture::Format::ColorHDR:
+				return TextureLabel::ReplacementTexture;
+			default:
+				return TextureLabel::Other;
+		}
+	}
+	else if (GSTexture::IsDepthStencil(usage))
+	{
+		return TextureLabel::DepthStencil;
+	}
+	else if (GSTexture::IsShaderWrite(usage))
+	{
+		return TextureLabel::RWTexture;
+	}
+	else
+	{
+		return TextureLabel::Other;
 	}
 }
 
@@ -243,7 +255,7 @@ GSDevice::GSDevice()
 GSDevice::~GSDevice()
 {
 	// should've been cleaned up in Destroy()
-	pxAssert(m_pool[0].empty() && m_pool[1].empty() && !m_merge && !m_weavebob && !m_blend && !m_mad && !m_target_tmp && !m_cas);
+	pxAssert(m_pool[0].empty() && m_pool[1].empty() && !m_merge && !m_weavebob && !m_blend && !m_mad && !m_target_tmp && !m_cas && !m_blur);
 }
 
 const char* GSDevice::RenderAPIToString(RenderAPI api)
@@ -360,8 +372,80 @@ GSVector4i GSDevice::ProcessCopyArea(const GSVector4i& rtsize, const GSVector4i&
 	return snapped_drawarea;
 }
 
+#ifdef BAKE_SHADERS_IN_CPP
+#include "common_fxaa.cpp"
+#include "common_ffx_a.cpp"
+#include "common_ffx_cas.cpp"
+#include "vulkan_cas.cpp"
+#include "vulkan_convert.cpp"
+#include "vulkan_imgui.cpp"
+#include "vulkan_interlace.cpp"
+#include "vulkan_merge.cpp"
+#include "vulkan_present.cpp"
+#include "vulkan_shadeboost.cpp"
+#include "vulkan_tfx.cpp"
+#include "opengl_cas.cpp"
+#include "opengl_convert.cpp"
+#include "opengl_imgui.cpp"
+#include "opengl_interlace.cpp"
+#include "opengl_merge.cpp"
+#include "opengl_present.cpp"
+#include "opengl_shadeboost.cpp"
+#include "opengl_tfx_fs.cpp"
+#include "opengl_tfx_vgs.cpp"
+#ifdef _WIN32
+#include "dx11_cas.cpp"
+#include "dx11_convert.cpp"
+#include "dx11_imgui.cpp"
+#include "dx11_interlace.cpp"
+#include "dx11_merge.cpp"
+#include "dx11_present.cpp"
+#include "dx11_shadeboost.cpp"
+#include "dx11_tfx.cpp"
+#endif
+
+static const std::map<std::string, const unsigned char*> s_baked_shaders = {
+	{ "shaders/common/fxaa.fx"         , common_fxaa},
+	{ "shaders/common/fxaa.fx"         , common_fxaa },
+	{ "shaders/common/ffx_a.h"         , common_ffx_a },
+	{ "shaders/common/ffx_cas.h"       , common_ffx_cas },
+	{ "shaders/vulkan/cas.glsl"        , vulkan_cas },
+	{ "shaders/vulkan/convert.glsl"    , vulkan_convert},
+	{ "shaders/vulkan/imgui.glsl"      , vulkan_imgui},
+	{ "shaders/vulkan/interlace.glsl"  , vulkan_interlace},
+	{ "shaders/vulkan/merge.glsl"      , vulkan_merge },
+	{ "shaders/vulkan/present.glsl"    , vulkan_present },
+	{ "shaders/vulkan/shadeboost.glsl" , vulkan_shadeboost },
+	{ "shaders/vulkan/tfx.glsl"        , vulkan_tfx },
+	{ "shaders/opengl/cas.glsl"        , opengl_cas },
+	{ "shaders/opengl/convert.glsl"    , opengl_convert },
+	{ "shaders/opengl/imgui.glsl"      , opengl_imgui },
+	{ "shaders/opengl/interlace.glsl"  , opengl_interlace },
+	{ "shaders/opengl/merge.glsl"      , opengl_merge },
+	{ "shaders/opengl/present.glsl"    , opengl_present },
+	{ "shaders/opengl/shadeboost.glsl" , opengl_shadeboost },
+	{ "shaders/opengl/tfx_fs.glsl"     , opengl_tfx_fs },
+	{ "shaders/opengl/tfx_vgs.glsl"    , opengl_tfx_vgs },
+#ifdef _WIN32
+	{ "shaders/dx11/cas.hlsl"          , dx11_cas },
+	{ "shaders/dx11/convert.fx"        , dx11_convert },
+	{ "shaders/dx11/imgui.fx"          , dx11_imgui },
+	{ "shaders/dx11/interlace.fx"      , dx11_interlace },
+	{ "shaders/dx11/merge.fx"          , dx11_merge },
+	{ "shaders/dx11/present.fx"        , dx11_present },
+	{ "shaders/dx11/shadeboost.fx"     , dx11_shadeboost },
+	{ "shaders/dx11/tfx.fx"            , dx11_tfx },
+#endif
+};
+#endif
+
 std::optional<std::string> GSDevice::ReadShaderSource(const char* filename)
 {
+#ifdef BAKE_SHADERS_IN_CPP
+	const auto it = s_baked_shaders.find(filename);
+	if (it != s_baked_shaders.end())
+		return reinterpret_cast<const char*>(it->second);
+#endif
 	return FileSystem::ReadFileToString(Path::Combine(EmuFolders::Resources, filename).c_str());
 }
 
@@ -496,68 +580,67 @@ void GSDevice::UpdateImGuiTextures()
 			case ImTextureStatus_Destroyed:
 				continue;
 			case ImTextureStatus_WantCreate:
-			{
-				GSTexture* gs_tex = g_gs_device->CreateTexture(im_tex->Width, im_tex->Height, 1, GSTexture::Format::Color);
-				if (!gs_tex)
-					pxFailRel("Failed to create ImGui texture");
-
-				im_tex->SetTexID(reinterpret_cast<ImTextureID>(gs_tex->GetNativeHandle()));
-				im_tex->BackendUserData = gs_tex;
-				[[fallthrough]];
-			}
-			case ImTextureStatus_WantUpdates:
-			{
-				// If we fell through from WantCreate, then we are uploading the full size
-				// Otherwise, we are just updating the specified region
-				// clange-format off
-				const int upload_x = (im_tex->Status == ImTextureStatus_WantCreate) ? 0 : im_tex->UpdateRect.x;
-				const int upload_y = (im_tex->Status == ImTextureStatus_WantCreate) ? 0 : im_tex->UpdateRect.y;
-				const int upload_w = (im_tex->Status == ImTextureStatus_WantCreate) ? im_tex->Width : im_tex->UpdateRect.w;
-				const int upload_h = (im_tex->Status == ImTextureStatus_WantCreate) ? im_tex->Height : im_tex->UpdateRect.h;
-				const int upload_pitch = upload_w * im_tex->BytesPerPixel;
-				// clange-format on
-
-				const GSVector4i rect{
-					upload_x,
-					upload_y,
-					upload_x + upload_w,
-					upload_y + upload_h,
-				};
-
-				GSTexture* gs_tex = static_cast<GSTexture*>(im_tex->BackendUserData);
-				GSTexture::GSMap map;
-				if (gs_tex->Map(map, &rect))
+				if (GSTexture* gs_tex = g_gs_device->CreateTexture(im_tex->Width, im_tex->Height, 1, GSTexture::Format::Color))
 				{
-					for (int y = 0; y < upload_h; y++)
-						std::memcpy(map.bits + map.pitch * y, im_tex->GetPixelsAt(rect.x, rect.y + y), upload_pitch);
-
-					gs_tex->Unmap();
+					im_tex->SetTexID(reinterpret_cast<ImTextureID>(gs_tex->GetNativeHandle()));
+					im_tex->BackendUserData = gs_tex;
 				}
 				else
 				{
-					for (int y = 0; y < upload_h; y++)
-						gs_tex->Update({rect.left, rect.top + y, rect.right, rect.top + y + 1},
-							im_tex->GetPixelsAt(rect.x, rect.y + y), upload_pitch);
-				}
-
-				im_tex->Status = ImTextureStatus_OK;
-				break;
-			}
-			case ImTextureStatus_WantDestroy:
-			{
-				GSTexture* gs_tex = static_cast<GSTexture*>(im_tex->BackendUserData);
-				if (gs_tex == nullptr)
+					pxFailRel("Failed to create ImGui texture");
 					break;
+				}
+				[[fallthrough]];
+			case ImTextureStatus_WantUpdates:
+				if (GSTexture* gs_tex = static_cast<GSTexture*>(im_tex->BackendUserData))
+				{
+					// If we fell through from WantCreate, then we are uploading the full size
+					// Otherwise, we are just updating the specified region
+					// clange-format off
+					const int upload_x = (im_tex->Status == ImTextureStatus_WantCreate) ? 0 : im_tex->UpdateRect.x;
+					const int upload_y = (im_tex->Status == ImTextureStatus_WantCreate) ? 0 : im_tex->UpdateRect.y;
+					const int upload_w = (im_tex->Status == ImTextureStatus_WantCreate) ? im_tex->Width : im_tex->UpdateRect.w;
+					const int upload_h = (im_tex->Status == ImTextureStatus_WantCreate) ? im_tex->Height : im_tex->UpdateRect.h;
+					const int upload_pitch = upload_w * im_tex->BytesPerPixel;
+					// clange-format on
 
-				// While it's unlikely we're going to reuse the same size as imgui for rendering,
-				// imgui may request a new atlas of the same size if old font sizes are evicted.
-				Recycle(gs_tex);
+					const GSVector4i rect{
+						upload_x,
+						upload_y,
+						upload_x + upload_w,
+						upload_y + upload_h,
+					};
 
-				im_tex->SetTexID(ImTextureID_Invalid);
-				im_tex->BackendUserData = nullptr;
-				im_tex->Status = ImTextureStatus_Destroyed;
+					GSTexture::GSMap map;
+					if (gs_tex->Map(map, &rect))
+					{
+						for (int y = 0; y < upload_h; y++)
+							std::memcpy(map.bits + map.pitch * y, im_tex->GetPixelsAt(rect.x, rect.y + y), upload_pitch);
+
+						gs_tex->Unmap();
+					}
+					else
+					{
+						for (int y = 0; y < upload_h; y++)
+							gs_tex->Update({rect.left, rect.top + y, rect.right, rect.top + y + 1},
+								im_tex->GetPixelsAt(rect.x, rect.y + y), upload_pitch);
+					}
+
+					im_tex->Status = ImTextureStatus_OK;
+				}
 				break;
-			}
+			case ImTextureStatus_WantDestroy:
+				if (GSTexture* gs_tex = static_cast<GSTexture*>(im_tex->BackendUserData))
+				{
+					// While it's unlikely we're going to reuse the same size as imgui for rendering,
+					// imgui may request a new atlas of the same size if old font sizes are evicted.
+					Recycle(gs_tex);
+
+					im_tex->SetTexID(ImTextureID_Invalid);
+					im_tex->BackendUserData = nullptr;
+					im_tex->Status = ImTextureStatus_Destroyed;
+				}
+				break;
 			default:
 				pxAssert(false);
 				break;
@@ -594,11 +677,16 @@ void GSDevice::TextureRecycleDeleter::operator()(GSTexture* const tex)
 	g_gs_device->Recycle(tex);
 }
 
-GSTexture* GSDevice::FetchSurface(GSTexture::Type type, int width, int height, int levels, GSTexture::Format format, bool clear, bool prefer_unused_texture)
+GSTexture* GSDevice::FetchSurface(GSTexture::Usage usage, const GSVector2i& size, int levels, GSTexture::Format format, bool clear, bool prefer_reuse)
+{
+	return FetchSurface(usage, size.x, size.y, levels, format, clear, prefer_reuse);
+}
+
+GSTexture* GSDevice::FetchSurface(GSTexture::Usage usage, int width, int height, int levels, GSTexture::Format format, bool clear, bool prefer_reuse)
 {
 	const GSVector2i size(std::clamp(width, 1, static_cast<int>(g_gs_device->GetMaxTextureSize())),
 		std::clamp(height, 1, static_cast<int>(g_gs_device->GetMaxTextureSize())));
-	FastList<GSTexture*>& pool = m_pool[type != GSTexture::Type::Texture];
+	FastList<GSTexture*>& pool = m_pool[!GSTexture::IsTexture(usage)];
 
 	GSTexture* t = nullptr;
 	auto fallback = pool.end();
@@ -609,9 +697,9 @@ GSTexture* GSDevice::FetchSurface(GSTexture::Type type, int width, int height, i
 
 		pxAssert(t);
 
-		if (t->GetType() == type && t->GetFormat() == format && t->GetSize() == size && t->GetMipmapLevels() == levels)
+		if (t->GetUsage() == usage && t->GetFormat() == format && t->GetSize() == size && t->GetMipmapLevels() == levels)
 		{
-			if (!prefer_unused_texture || t->GetLastFrameUsed() != m_frame)
+			if (prefer_reuse || t->GetLastFrameUsed() != m_frame)
 			{
 				m_pool_memory_usage -= t->GetMemUsage();
 				pool.erase(i);
@@ -628,7 +716,7 @@ GSTexture* GSDevice::FetchSurface(GSTexture::Type type, int width, int height, i
 
 	if (!t)
 	{
-		if (pool.size() >= ((type == GSTexture::Type::Texture) ? MAX_POOLED_TEXTURES : MAX_POOLED_TARGETS) &&
+		if (pool.size() >= (GSTexture::IsTexture(usage) ? MAX_POOLED_TEXTURES : MAX_POOLED_TARGETS) &&
 			fallback != pool.end())
 		{
 			t = *fallback;
@@ -637,12 +725,12 @@ GSTexture* GSDevice::FetchSurface(GSTexture::Type type, int width, int height, i
 		}
 		else
 		{
-			t = CreateSurface(type, size.x, size.y, levels, format);
+			t = CreateSurface(usage, size.x, size.y, levels, format);
 			if (!t)
 			{
 				ERROR_LOG("GS: Memory allocation failure for {}x{} texture. Purging pool and retrying.", size.x, size.y);
 				PurgePool();
-				t = CreateSurface(type, size.x, size.y, levels, format);
+				t = CreateSurface(usage, size.x, size.y, levels, format);
 				if (!t)
 				{
 					ERROR_LOG("GS: Memory allocation failure for {}x{} texture after purging pool.", size.x, size.y);
@@ -653,7 +741,7 @@ GSTexture* GSDevice::FetchSurface(GSTexture::Type type, int width, int height, i
 #ifdef PCSX2_DEVBUILD
 			if (GSConfig.UseDebugDevice)
 			{
-				const TextureLabel label = GetTextureLabel(type, format);
+				const TextureLabel label = GetTextureLabel(usage, format);
 				const u32 id = ++s_texture_counts[static_cast<u32>(label)];
 				t->SetDebugName(TinyString::from_format("{} {}", TextureLabelString(label), id));
 			}
@@ -661,26 +749,19 @@ GSTexture* GSDevice::FetchSurface(GSTexture::Type type, int width, int height, i
 		}
 	}
 
-	switch (type)
+	if (t->IsRenderTarget())
 	{
-	case GSTexture::Type::RenderTarget:
-		{
-			if (clear)
-				ClearRenderTarget(t, 0);
-			else
-				InvalidateRenderTarget(t);
-		}
-		break;
-	case GSTexture::Type::DepthStencil:
-		{
-			if (clear)
-				ClearDepth(t, 0.0f);
-			else
-				InvalidateRenderTarget(t);
-		}
-		break;
-	default:
-		break;
+		if (clear)
+			ClearRenderTarget(t, 0);
+		else
+			InvalidateRenderTarget(t);
+	}
+	else if (t->IsDepthStencil())
+	{
+		if (clear)
+			ClearDepth(t, 0.0f);
+		else
+			InvalidateRenderTarget(t);
 	}
 
 	return t;
@@ -692,12 +773,13 @@ void GSDevice::Recycle(GSTexture* t)
 		return;
 
 	t->SetLastFrameUsed(m_frame);
-
-	t->ClearUnorderedAccess();
 	
 #ifdef PCSX2_DEVBUILD
 	t->SetDebugName("");
 #endif
+
+	if (t->IsDepthStencil())
+		InvalidateDSAsRT(t);
 
 	FastList<GSTexture*>& pool = m_pool[!t->IsTexture()];
 	pool.push_front(t);
@@ -762,46 +844,57 @@ void GSDevice::PurgePool()
 
 GSTexture* GSDevice::CreateRenderTarget(int w, int h, GSTexture::Format format, bool clear, bool prefer_reuse)
 {
-	return FetchSurface(GSTexture::Type::RenderTarget, w, h, 1, format, clear, !prefer_reuse);
+	return FetchSurface(GSTexture::RenderTarget, w, h, 1, format, clear, prefer_reuse);
 }
 
 GSTexture* GSDevice::CreateRenderTarget(const GSVector2i& size, GSTexture::Format format, bool clear, bool prefer_reuse)
 {
-	return FetchSurface(GSTexture::Type::RenderTarget, size.x, size.y, 1, format, clear, !prefer_reuse);
+	return FetchSurface(GSTexture::RenderTarget, size.x, size.y, 1, format, clear, prefer_reuse);
+}
+
+GSTexture* GSDevice::CreateFeedbackTarget(int w, int h, GSTexture::Format format, bool clear, bool prefer_reuse)
+{
+	return FetchSurface(GSTexture::FeedbackTarget, w, h, 1, format, clear, prefer_reuse);
+}
+
+GSTexture* GSDevice::CreateFeedbackTarget(const GSVector2i& size, GSTexture::Format format, bool clear, bool prefer_reuse)
+{
+	return FetchSurface(GSTexture::FeedbackTarget, size.x, size.y, 1, format, clear, prefer_reuse);
+}
+
+GSTexture* GSDevice::CreateShaderWriteTarget(int w, int h, GSTexture::Format format, bool clear, bool prefer_reuse)
+{
+	return FetchSurface(GSTexture::ShaderWriteTarget, w, h, 1, format, clear, prefer_reuse);
+}
+
+GSTexture* GSDevice::CreateShaderWriteTarget(const GSVector2i& size, GSTexture::Format format, bool clear, bool prefer_reuse)
+{
+	return FetchSurface(GSTexture::ShaderWriteTarget, size.x, size.y, 1, format, clear, prefer_reuse);
+}
+
+GSTexture::Usage GSDevice::GetDepthStencilUsage() const
+{
+	return m_features.depth_feedback ? GSTexture::FeedbackDepth : GSTexture::DepthStencil;
 }
 
 GSTexture* GSDevice::CreateDepthStencil(int w, int h, bool clear, bool prefer_reuse)
 {
-	return FetchSurface(GSTexture::Type::DepthStencil, w, h, 1, GSTexture::Format::DepthStencil,
-		clear, !prefer_reuse);
+	return FetchSurface(GetDepthStencilUsage(), w, h, 1, GSTexture::Format::DepthStencil, clear, prefer_reuse);
 }
 
 GSTexture* GSDevice::CreateDepthStencil(const GSVector2i& size, bool clear, bool prefer_reuse)
 {
-	return FetchSurface(GSTexture::Type::DepthStencil, size.x, size.y, 1, GSTexture::Format::DepthStencil,
-		clear, !prefer_reuse);
+	return FetchSurface(GetDepthStencilUsage(), size.x, size.y, 1, GSTexture::Format::DepthStencil, clear, prefer_reuse);
 }
 
-GSTexture* GSDevice::CreateDepthColor(int w, int h, bool clear, bool prefer_reuse)
-{
-	return FetchSurface(GSTexture::Type::RenderTarget, w, h, 1, GSTexture::Format::DepthColor,
-		clear, !prefer_reuse);
-}
-
-GSTexture* GSDevice::CreateDepthColor(const GSVector2i& size, bool clear, bool prefer_reuse)
-{
-	return FetchSurface(GSTexture::Type::RenderTarget, size.x, size.y, 1, GSTexture::Format::DepthColor,
-		clear, !prefer_reuse);
-}
-
-GSTexture* GSDevice::CreateTexture(int w, int h, int mipmap_levels, GSTexture::Format format, bool prefer_reuse /* = false */)
+GSTexture* GSDevice::CreateTexture(int w, int h, int mipmap_levels, GSTexture::Format format, bool prefer_reuse)
 {
 	pxAssert(mipmap_levels != 0 && (mipmap_levels < 0 || mipmap_levels <= GetMipmapLevelsForSize(w, h)));
 	const int levels = mipmap_levels < 0 ? GetMipmapLevelsForSize(w, h) : mipmap_levels;
-	return FetchSurface(GSTexture::Type::Texture, w, h, levels, format, false, m_features.prefer_new_textures && !prefer_reuse);
+	return FetchSurface(GSTexture::Texture, w, h, levels, format, false, !m_features.prefer_new_textures || prefer_reuse);
 }
 
-GSTexture* GSDevice::CreateTexture(const GSVector2i& size, int mipmap_levels, GSTexture::Format format, bool prefer_reuse /* = false */)
+GSTexture* GSDevice::CreateTexture(const GSVector2i& size, int mipmap_levels, GSTexture::Format format, bool prefer_reuse)
 {
 	return CreateTexture(size.x, size.y, mipmap_levels, format, prefer_reuse);
 }
@@ -818,7 +911,7 @@ GSTexture* GSDevice::CreateCompatible(GSTexture* tex, const GSVector2i& size, bo
 
 GSTexture* GSDevice::CreateCompatible(GSTexture* tex, int w, int h, bool clear, bool prefer_reuse)
 {
-	return FetchSurface(tex->GetType(), w, h, 1, tex->GetFormat(), clear, !prefer_reuse);
+	return FetchSurface(tex->GetUsage(), w, h, 1, tex->GetFormat(), clear, prefer_reuse);
 }
 
 void GSDevice::DoStretchRectWithAssertions(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex,
@@ -918,6 +1011,7 @@ void GSDevice::ClearCurrent()
 	delete m_mad;
 	delete m_target_tmp;
 	delete m_cas;
+	delete m_blur;
 
 	m_merge = nullptr;
 	m_weavebob = nullptr;
@@ -925,6 +1019,7 @@ void GSDevice::ClearCurrent()
 	m_mad = nullptr;
 	m_target_tmp = nullptr;
 	m_cas = nullptr;
+	m_blur = nullptr;
 }
 
 void GSDevice::Merge(GSTexture* sTex[3], GSVector4* sRect, GSVector4* dRect, const GSVector2i& fs, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, u32 c)
@@ -1070,8 +1165,9 @@ bool GSDevice::ResizeRenderTarget(GSTexture** t, int w, int h, bool preserve_con
 	}
 
 	const GSTexture::Format fmt = orig_tex ? orig_tex->GetFormat() : GSTexture::Format::Color;
+	const GSTexture::Usage usage = orig_tex ? orig_tex->GetUsage() : GSTexture::RenderTarget;
 	const bool really_preserve_contents = (preserve_contents && orig_tex);
-	GSTexture* new_tex = FetchSurface(GSTexture::Type::RenderTarget, w, h, 1, fmt, !really_preserve_contents, true);
+	GSTexture* new_tex = FetchSurface(usage, w, h, 1, fmt, !really_preserve_contents, false);
 	if (!new_tex)
 	{
 		Console.WriteLn("%dx%d texture allocation failed in ResizeTexture()", w, h);
@@ -1097,21 +1193,134 @@ bool GSDevice::ResizeRenderTarget(GSTexture** t, int w, int h, bool preserve_con
 	return true;
 }
 
-void GSDevice::BeginDSAsRT(GSTexture* ds, const GSVector4i& drawarea)
+static GSVector4i GetExpandRectRegions(GSVector4i old, GSVector4i new_, GSVector4i* regions, u32* n_regions)
 {
-	// Create a temporary RT and copy the area needed for the draw.
+	*n_regions = 0;
+
+	if (old.rcontains(new_))
+		return old;
+
+	new_ = new_.runion(old);
+
+	// Left region
+	if (new_.left < old.left)
+	{
+		regions[(*n_regions)++] = GSVector4i(new_.left, new_.top, old.left, old.bottom);
+	}
+
+	// Top region
+	if (new_.top < old.top)
+	{
+		regions[(*n_regions)++] = GSVector4i(old.left, new_.top, new_.right, old.top);
+	}
+
+	// Right region
+	if (new_.right > old.right)
+	{
+		regions[(*n_regions)++] = GSVector4i(old.right, old.top, new_.right, new_.bottom);
+	}
+
+	// Bottom region
+	if (new_.bottom > old.bottom)
+	{
+		regions[(*n_regions)++] = GSVector4i(new_.left, old.bottom, old.right, new_.bottom);
+	}
+
+	// Debugging
+	[[maybe_unused]] u32 total_area = old.rarea();
+	for (u32 i = 0; i < *n_regions; i++)
+	{
+		total_area += regions[i].rarea();
+	}
+	pxAssert(total_area == new_.rarea()); // Make sure no overlap or holes.
+
+	return new_;
+}
+
+void GSDevice::BeginDSAsRT(GSTexture* ds, const GSVector4i& drawarea_in)
+{
+	if (m_ds_as_rt_orig && m_ds_as_rt_orig != ds)
+		EndDSAsRT();
+
+	if (!m_ds_as_rt)
+	{
+		GL_INS("HW: Create new DS as RT");
+		m_ds_as_rt = g_gs_device->CreateFeedbackTarget(ds->GetSize(), GSTexture::Format::DepthColor, false, true);
+		m_ds_as_rt_orig = ds;
+		m_ds_as_rt_valid = GSVector4i::zero();
+	}
+
+	if (!m_ds_as_rt)
+	{
+		Console.Error("HW: Failed to create DS as RT texture");
+		return;
+	}
+
+	// Align to 64x64 tiles to reduce number of copies
+	const GSVector4i drawarea = drawarea_in.ralign<Align_Outside>(GSVector2i(64, 64));
+
+	pxAssert(m_ds_as_rt && m_ds_as_rt_orig == ds);
+
+	if (ds->GetState() == GSTexture::State::Cleared)
+	{
+		GL_INS("HW: DS is cleared, transfer to cached DS as RT");
+		m_ds_as_rt->SetClearDepth(ds->GetClearDepth());
+		m_ds_as_rt_valid = ds->GetRect();
+		return;
+	}
+
+	std::array<GSVector4i, 4> regions;
+	u32 n_regions;
+	if (m_ds_as_rt_valid.rempty())
+	{
+		// Valid area is empty, so just copy the new draw area.
+		GL_INS("HW: Initialize new DS as RT.");
+		n_regions = 1;
+		m_ds_as_rt_valid = regions[0] = drawarea;
+	}
+	else
+	{
+		// Expand valid area to encompass the new draw area.
+		GL_INS("HW: Update cached DS as RT.");
+		m_ds_as_rt_valid = GetExpandRectRegions(m_ds_as_rt_valid, drawarea, regions.data(), &n_regions);
+		if (n_regions == 0)
+		{
+			GL_INS("HW: Draw area is already contained in valid area.");
+			return;
+		}
+	}
+
+	std::array<MultiStretchRect, 4> rects;
 	const int w = ds->GetWidth();
 	const int h = ds->GetHeight();
-	m_ds_as_rt = g_gs_device->CreateRenderTarget(w, h, GSTexture::Format::DepthColor, false, true);
-	const GSVector4 dRect(drawarea);
-	const GSVector4 sRect(dRect.x / w, dRect.y / h, dRect.z / w, dRect.w / h);
-	StretchRectAuto(ds, sRect, m_ds_as_rt, dRect, Nearest);
+	for (u32 i = 0; i < n_regions; i++)
+	{
+		const GSVector4 dRect(regions[i]);
+		const GSVector4 sRect(dRect.x / w, dRect.y / h, dRect.z / w, dRect.w / h);
+		rects[i].src_rect = sRect;
+		rects[i].dst_rect = dRect;
+		rects[i].src = ds;
+		rects[i].filter = Nearest;
+		rects[i].wmask = 0xF;
+	}
+	DrawMultiStretchRects(rects.data(), n_regions, m_ds_as_rt, ShaderConvert::DEPTH_COPY);
+}
+
+void GSDevice::InvalidateDSAsRT(GSTexture* ds)
+{
+	if (m_ds_as_rt_orig == ds)
+	{
+		GL_INS("HW: Invalidate current DS as RT.");
+		EndDSAsRT();
+	}
 }
 
 void GSDevice::EndDSAsRT()
 {
 	Recycle(m_ds_as_rt);
 	m_ds_as_rt = nullptr;
+	m_ds_as_rt_orig = nullptr;
+	m_ds_as_rt_valid = GSVector4i::zero();
 }
 
 #if defined(__clang__)
@@ -1158,10 +1367,10 @@ void GSDevice::CAS(GSTexture*& tex, GSVector4i& src_rect, GSVector4& src_uv, con
 	if (!m_cas || m_cas->GetWidth() != dst_width || m_cas->GetHeight() != dst_height)
 	{
 		delete m_cas;
-		m_cas = CreateSurface(GSTexture::Type::RWTexture, dst_width, dst_height, 1, GSTexture::Format::Color);
+		m_cas = CreateSurface(GSTexture::RenderTarget, dst_width, dst_height, 1, GSTexture::Format::Color);
 		if (!m_cas)
 		{
-			Console.Error("Failed to allocate CAS RW texture.");
+			Console.Error("GS: Failed to allocate CAS texture.");
 			return;
 		}
 	}
@@ -1176,13 +1385,50 @@ void GSDevice::CAS(GSTexture*& tex, GSVector4i& src_rect, GSVector4& src_uv, con
 	if (!DoCAS(src_tex, m_cas, sharpen_only, consts))
 	{
 		// leave textures intact if we failed
-		Console.Warning("Applying CAS failed.");
+		Console.Warning("GS: Applying CAS failed.");
 		return;
 	}
 
 	tex = m_cas;
 	src_rect = GSVector4i(0, 0, dst_width, dst_height);
 	src_uv = GSVector4(0.0f, 0.0f, 1.0f, 1.0f);
+}
+
+void GSDevice::DoGaussianBlur(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, GSTexture* tempTex)
+{
+	GL_PUSH("DoGaussianBlur");
+
+	const GSVector4 fullRect(0.0f, 0.0f, 1.0f, 1.0f);
+	const GSVector4 dRect(dTex->GetRect());
+	StretchRect(sTex, sRect, dTex, dRect, ShaderConvert::COPY, Biln);
+	StretchRect(dTex, fullRect, tempTex, dRect, ShaderConvert::GAUSSIAN_BLUR_H, Biln);
+	StretchRect(tempTex, fullRect, dTex, dRect, ShaderConvert::GAUSSIAN_BLUR_V, Biln);
+}
+
+bool GSDevice::GaussianBlur(GSTexture*& tex, GSVector4& src_uv, const GSVector4& draw_rect, float scale, bool refresh)
+{
+	const GSVector2i size(
+		std::max(1, static_cast<int>(std::round(std::abs(draw_rect.z - draw_rect.x) * scale))),
+		std::max(1, static_cast<int>(std::round(std::abs(draw_rect.w - draw_rect.y) * scale))));
+
+	if (refresh || !m_blur || m_blur->GetState() != GSTexture::State::Dirty || m_blur->GetSize() != size ||
+		!(src_uv == m_blur_source_rect).alltrue())
+	{
+		if (!ResizeRenderTarget(&m_blur, size.x, size.y, false, true))
+			return false;
+
+		GSTexture* const temp_tex = CreateRenderTarget(size, GSTexture::Format::Color, false);
+		if (!temp_tex)
+			return false;
+
+		DoGaussianBlur(tex, src_uv, m_blur, temp_tex);
+		Recycle(temp_tex);
+		m_blur_source_rect = src_uv;
+	}
+
+	tex = m_blur;
+	src_uv = GSVector4(0.0f, 0.0f, 1.0f, 1.0f);
+	return true;
 }
 
 bool GSHWDrawConfig::BlendState::IsEffective(ColorMaskSelector colormask) const
@@ -1653,7 +1899,7 @@ static void DumpAlphaPass(DrawConfigWriter& out, const GSHWDrawConfig::AlphaPass
 	out.WriteLn("enable: {}", ap.enable);
 	out.WriteLn("require_one_barrier: {}", ap.require_one_barrier);
 	out.WriteLn("require_full_barrier: {}", ap.require_full_barrier);
-	out.WriteLn("colormask: {:x}", ap.colormask.wrgba);
+	out.WriteLn("colormask: 0x{:x}", ap.colormask.wrgba);
 	out.WriteLn("ps_aref: {}", ap.ps_aref);
 
 	out.WriteLn("ps:");
@@ -1674,7 +1920,7 @@ static void DumpBlendMultipass(DrawConfigWriter& out, const GSHWDrawConfig::Blen
 	DumpBlendState(out.WithIndent(), bmp.blend);
 }
 
-template<typename T, typename U = int>
+template<typename T>
 static void DumpVector4(DrawConfigWriter& out, const char* name, const T& val)
 {
 	out.WriteLn("{}: [{}, {}, {}, {}]", name, val.x, val.y, val.z, val.w);
@@ -1705,6 +1951,7 @@ static void DumpPSConstantBuffer(DrawConfigWriter& out, const GSHWDrawConfig::PS
 	DumpVector4(out, "DitherMatrix_2", cb.DitherMatrix[2]);
 	DumpVector4(out, "DitherMatrix_3", cb.DitherMatrix[3]);
 	DumpVector4(out, "ScaleFactor", cb.ScaleFactor);
+	out.WriteLn("LineCovScale: {}", cb.LineCovScale);
 }
 
 static void DumpVSConstantBuffer(DrawConfigWriter& out, const GSHWDrawConfig::VSConstantBuffer& cb)
@@ -1714,7 +1961,8 @@ static void DumpVSConstantBuffer(DrawConfigWriter& out, const GSHWDrawConfig::VS
 	DumpVector2(out, "texture_scale", cb.texture_scale);
 	DumpVector2(out, "texture_offset", cb.texture_offset);
 	DumpVector2(out, "point_size", cb.point_size);
-	DumpVector2(out, "max_depth", cb.max_depth);
+	out.WriteLn("max_depth: {}", cb.max_depth);
+	out.WriteLn("line_aa1_width: {}", cb.line_aa1_width);
 }
 
 static void DumpConfig(DrawConfigWriter& out, const GSHWDrawConfig& conf,
@@ -1730,7 +1978,13 @@ static void DumpConfig(DrawConfigWriter& out, const GSHWDrawConfig& conf,
 	out.WriteLn("destination_alpha: {} ({})", GetDestinationAlphaModeName(conf.destination_alpha), static_cast<u32>(conf.destination_alpha));
 	out.WriteLn("datm: {} ({})", GetSetDATMName(conf.datm), static_cast<u32>(conf.datm));
 	out.WriteLn("line_expand: {}", conf.line_expand);
-	out.WriteLn("colormask: {:x}", conf.colormask.wrgba);
+	out.WriteLn("colormask: 0x{:x}", conf.colormask.wrgba);
+
+	out.WriteLn("colclip_mode: {}", GetColClipModeName(conf.colclip_mode));
+	out.WriteLn("colclip_frame: {{ FBP: 0x{:04x}, FBW: {}, PSM: {}, FBMSK: 0x{:08x} }}",
+		conf.colclip_frame.FBP, conf.colclip_frame.FBW, GSUtil::GetPSMName(conf.colclip_frame.PSM),
+		conf.colclip_frame.FBMSK);
+	DumpVector4(out, "colclip_update_area", conf.colclip_update_area);
 
 	if (ps)
 	{

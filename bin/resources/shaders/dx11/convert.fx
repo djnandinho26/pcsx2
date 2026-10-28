@@ -169,10 +169,48 @@ float depth32_to_depth24(float d)
 	return uint_to_depth24(depth_to_uint(d));
 }
 
+float4 primid_to_rgba8(float p)
+{
+	return uint_to_rgba8(asuint(p));
+}
+
 #if defined(__ps_copy__)
 OUTPUT_TYPE ps_copy(PS_INPUT input) : OUTPUT_SV
 {
 	return sample_c(input.t);
+}
+#endif
+
+#if defined(__ps_gaussian_blur_h__) || defined(__ps_gaussian_blur_v__)
+float4 gaussian_blur(float2 uv, float2 offset)
+{
+	// 9 tap Gaussian blur using 5 bilinear samples.
+	// Weights and offsets from https://www.rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
+	const float3 weights = float3(0.2270270270f, 0.3162162162f, 0.0702702703f);
+	const float2 offsets = float2(1.3846153846f, 3.2307692308f);
+
+	float4 result = sample_c(uv) * weights.x;
+	result += (sample_c(uv + offset * offsets.x) + sample_c(uv - offset * offsets.x)) * weights.y;
+	result += (sample_c(uv + offset * offsets.y) + sample_c(uv - offset * offsets.y)) * weights.z;
+	return result;
+}
+#endif
+
+#if defined(__ps_gaussian_blur_h__)
+OUTPUT_TYPE ps_gaussian_blur_h(PS_INPUT input) : OUTPUT_SV
+{
+	uint width, height;
+	Texture.GetDimensions(width, height);
+	return gaussian_blur(input.t, float2(1.0f / width, 0.0f));
+}
+#endif
+
+#if defined(__ps_gaussian_blur_v__)
+OUTPUT_TYPE ps_gaussian_blur_v(PS_INPUT input) : OUTPUT_SV
+{
+	uint width, height;
+	Texture.GetDimensions(width, height);
+	return gaussian_blur(input.t, float2(0.0f, 1.0f / height));
 }
 #endif
 
@@ -323,6 +361,13 @@ OUTPUT_TYPE ps_convert_depth32_depth24(PS_INPUT input) : OUTPUT_SV
 }
 #endif
 
+#if defined(__ps_convert_primid_rgba8__)
+OUTPUT_TYPE ps_convert_primid_rgba8(PS_INPUT input) : OUTPUT_SV
+{
+	return primid_to_rgba8(sample_c(input.t));
+}
+#endif
+
 #define SAMPLE_RGBA_DEPTH_BILN(CONVERT_FN) \
 	uint width, height; \
 	Texture.GetDimensions(width, height); \
@@ -334,7 +379,7 @@ OUTPUT_TYPE ps_convert_depth32_depth24(PS_INPUT input) : OUTPUT_SV
 	float depthTR = CONVERT_FN(Texture.Load(int3(coords.zy, 0))); \
 	float depthBL = CONVERT_FN(Texture.Load(int3(coords.xw, 0))); \
 	float depthBR = CONVERT_FN(Texture.Load(int3(coords.zw, 0))); \
-	return lerp(lerp(depthTL, depthTR, mix_vals.x), lerp(depthBL, depthBR, mix_vals.x), mix_vals.y);
+	return floor(lerp(lerp(depthTL, depthTR, mix_vals.x), lerp(depthBL, depthBR, mix_vals.x), mix_vals.y) * exp2(32.0f)) * exp2(-32.0f); 
 
 #if defined(__ps_convert_rgba8_depth32__)
 OUTPUT_TYPE ps_convert_rgba8_depth32(PS_INPUT input) : OUTPUT_SV
@@ -650,9 +695,9 @@ float ps_primid_image_init_0(PS_INPUT input) : SV_Target
 {
 	float c;
 	if ((127.5f / 255.0f) < sample_c(input.t).a) // < 0x80 pass (== 0x80 should not pass)
-		c = float(-1);
+		c = float(PRIMID_MIN);
 	else
-		c = float(0x7FFFFFFF);
+		c = float(PRIMID_MAX);
 	return c;
 }
 #endif
@@ -662,9 +707,9 @@ float ps_primid_image_init_1(PS_INPUT input) : SV_Target
 {
 	float c;
 	if (sample_c(input.t).a < (127.5f / 255.0f)) // >= 0x80 pass
-		c = float(-1);
+		c = float(PRIMID_MIN);
 	else
-		c = float(0x7FFFFFFF);
+		c = float(PRIMID_MAX);
 	return c;
 }
 #endif
@@ -674,9 +719,9 @@ float ps_primid_image_init_2(PS_INPUT input) : SV_Target
 {
 	float c;
 	if ((254.5f / 255.0f) < sample_c(input.t).a) // < 0x80 pass (== 0x80 should not pass)
-		c = float(-1);
+		c = float(PRIMID_MIN);
 	else
-		c = float(0x7FFFFFFF);
+		c = float(PRIMID_MAX);
 	return c;
 }
 #endif
@@ -686,9 +731,9 @@ float ps_primid_image_init_3(PS_INPUT input) : SV_Target
 {
 	float c;
 	if (sample_c(input.t).a < (254.5f / 255.0f)) // >= 0x80 pass
-		c = float(-1);
+		c = float(PRIMID_MIN);
 	else
-		c = float(0x7FFFFFFF);
+		c = float(PRIMID_MAX);
 	return c;
 }
 #endif

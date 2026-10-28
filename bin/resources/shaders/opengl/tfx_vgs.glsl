@@ -12,8 +12,9 @@ layout(std140, binding = 1) uniform cb20
 	vec2  TextureOffset;
 
 	vec2  PointSize;
+
 	uint  MaxDepth;
-	uint  pad_cb20;
+	float LineAA1Width;
 };
 
 #ifdef VERTEX_SHADER
@@ -45,7 +46,7 @@ const float exp_min32 = exp2(-32.0f);
 #if VS_EXPAND == VS_EXPAND_NONE
 
 layout(location = 0) in vec2  i_st;
-layout(location = 2) in vec4  i_c;
+layout(location = 2) in uvec4 i_c;
 layout(location = 3) in float i_q;
 layout(location = 4) in uvec2 i_p;
 layout(location = 5) in uint  i_z;
@@ -83,12 +84,18 @@ void vs_main()
 	// example: 133.0625 (133 + 1/16) should start from line 134, ceil(133.0625 - 0.05) still above 133
 	gl_Position.xy = vec2(i_p) - vec2(0.05f, 0.05f);
 	gl_Position.xy = gl_Position.xy * VertexScale - VertexOffset;
-	gl_Position.z = float(z) * exp_min32;
+
+	#if HAS_CLIP_CONTROL
+		gl_Position.z = float(z) * exp_min32;
+	#else
+		gl_Position.z = (float(z) * exp_min32) * 2.0f - 1.0f;
+	#endif
+
 	gl_Position.w = 1.0f;
 
 	texture_coord();
 
-	VSout.c = i_c;
+	VSout.c = vec4(i_c);
 	VSout.t_float.z = i_f.x; // pack for with texture
 
 	#if VS_POINT_SIZE
@@ -138,7 +145,8 @@ uint load_index(uint _i)
 {
 	uint i = _i + BaseIndex;
 	// i is even => load lower 16 bits; i odd => load upper 16 bits.
-	uint shift = (i & 1u) << 4u;
+	// uint shift = (i & 1u) << 4u;
+	uint shift = (i & 1u) != 0u ? 16u : 0u;
 	return (index_buffer[i >> 1u] >> shift) & 0xFFFFu;
 }
 
@@ -147,20 +155,25 @@ ProcessedVertex load_vertex(uint index)
 	RawVertex rvtx = vertex_buffer[BaseVertex + index];
 
 	vec2 i_st = rvtx.ST;
-	vec4 i_c = vec4(uvec4(bitfieldExtract(rvtx.RGBA, 0, 8), bitfieldExtract(rvtx.RGBA, 8, 8),
-	                      bitfieldExtract(rvtx.RGBA, 16, 8), bitfieldExtract(rvtx.RGBA, 24, 8)));
+	uvec4 i_c = uvec4(rvtx.RGBA & 0xFFu, (rvtx.RGBA >> 8) & 0xFFu, (rvtx.RGBA >> 16) & 0xFFu, rvtx.RGBA >> 24);
 	float i_q = rvtx.Q;
-	uvec2 i_p = uvec2(bitfieldExtract(rvtx.XY, 0, 16), bitfieldExtract(rvtx.XY, 16, 16));
+	uvec2 i_p = uvec2(rvtx.XY & 0xFFFFu, rvtx.XY >> 16);
 	uint i_z = rvtx.Z;
-	uvec2 i_uv = uvec2(bitfieldExtract(rvtx.UV, 0, 16), bitfieldExtract(rvtx.UV, 16, 16));
-	vec4 i_f = unpackUnorm4x8(rvtx.FOG);
+	uvec2 i_uv = uvec2(rvtx.UV & 0xFFFFu, rvtx.UV >> 16);
+	vec4 i_f = vec4(float(rvtx.FOG & 0xFFu), vec3(0.0f)) / 255.0f;
 
 	ProcessedVertex vtx;
 
 	uint z = min(i_z, MaxDepth);
 	vtx.p.xy = vec2(i_p) - vec2(0.05f, 0.05f);
 	vtx.p.xy = vtx.p.xy * VertexScale - VertexOffset;
-	vtx.p.z = float(z) * exp_min32;
+
+	#if HAS_CLIP_CONTROL
+		vtx.p.z = float(z) * exp_min32;
+	#else
+		vtx.p.z = (float(z) * exp_min32) * 2.0f - 1.0f;
+	#endif
+
 	vtx.p.w = 1.0f;
 
 	vec2 uv = vec2(i_uv) - TextureOffset;
@@ -176,7 +189,7 @@ ProcessedVertex load_vertex(uint index)
 	vtx.t_int.zw = st / TextureScale;
 #endif
 
-	vtx.c = i_c;
+	vtx.c = vec4(i_c);
 	vtx.t_float.z = i_f.x;
 
 	return vtx;
@@ -304,18 +317,16 @@ void main()
 	uint vid_base = vid >> 2;
 	bool is_bottom = (vid & 2u) != 0u;
 	bool is_right = (vid & 1u) != 0u;
-	uint vid_other = is_bottom ? vid_base - 1 : vid_base + 1;
+	uint vid_other = is_bottom ? vid_base - 1u : vid_base + 1u;
 	vtx = load_vertex(vid_base);
 	ProcessedVertex other = load_vertex(vid_other);
 
 	// Use bottom minus top for delta regardless of which vertex we are expanding.
 	vec2 line_delta = is_bottom ? (vtx.p.xy - other.p.xy) : (other.p.xy - vtx.p.xy);
 	vec2 line_vector = normalize(line_delta / VertexScale);
-#if VS_EXPAND == VS_EXPAND_LINE
 	vec2 line_expand = vec2(line_vector.y, -line_vector.x);
-#elif VS_EXPAND == VS_EXPAND_LINE_AA1
-	// Expand in y direction for shallow lines and x direction for steep lines.
-	vec2 line_expand = abs(line_vector.x) >= abs(line_vector.y) ? vec2(0.0f, 2.0f) : vec2(2.0f, 0.0f);
+#if VS_EXPAND == VS_EXPAND_LINE_AA1
+	line_expand *= 2.0f * LineAA1Width;
 #endif
 	vec2 line_width = (line_expand * PointSize) / 2;
 	vec2 offset = is_right ? line_width : -line_width;
@@ -361,34 +372,34 @@ void main()
 	// - Vertices 27-32: Second corner cap (2 triangles).
 	// - Vertices 33-38: Third corner cap (2 triangles).
 
-	uint prim_id = vid / 39;
-	uint prim_offset = vid - 39 * prim_id; // range: 0-38
-	bool interior = prim_offset < 3;
-	bool edge = 3 <= prim_offset && prim_offset < 21;
+	uint prim_id = vid / 39u;
+	uint prim_offset = vid - 39u * prim_id; // range: 0-38
+	bool interior = prim_offset < 3u;
+	bool edge = 3u <= prim_offset && prim_offset < 21u;
 
 	if (interior)
 	{
-		vtx = load_vertex(load_index(3 * prim_id + prim_offset));
+		vtx = load_vertex(load_index(3u * prim_id + prim_offset));
 		VSout.inv_cov = 0.0f; // Full coverage
-		VSout.interior = 1;
+		VSout.interior = 1u;
 	}
 	else if (edge)
 	{
 		// Vertex indices for this edge. We need all 3 for determining exterior/interior.
-		uint prim_offset_edges = prim_offset - 3; // range: 0-17
-		uint i0 = prim_offset_edges / 6;
-		uint i1 = (i0 >= 2) ? i0 - 2 : i0 + 1;
-		uint i2 = (i0 >= 1) ? i0 - 1 : i0 + 2;
-		uint edge_offset = prim_offset_edges - 6 * i0; // range: 0-5
+		uint prim_offset_edges = prim_offset - 3u; // range: 0-17
+		uint i0 = prim_offset_edges / 6u;
+		uint i1 = (i0 >= 2u) ? i0 - 2u : i0 + 1u;
+		uint i2 = (i0 >= 1u) ? i0 - 1u : i0 + 2u;
+		uint edge_offset = prim_offset_edges - 6u * i0; // range: 0-5
 
 		// Note: order of top/bottom, inside/outside is arbitrary,
 		// as long as it assembles into two triangles forming a quad.
-		bool is_bottom = (2 <= edge_offset) && (edge_offset <= 4);
-		bool is_outside = (edge_offset & 1u) != 0;
+		bool is_bottom = (2u <= edge_offset) && (edge_offset <= 4u);
+		bool is_outside = (edge_offset & 1u) != 0u;
 
-		vtx = load_vertex(load_index(3 * prim_id + (is_bottom ? i1 : i0)));
-		ProcessedVertex other = load_vertex(load_index(3 * prim_id + (is_bottom ? i0 : i1)));
-		ProcessedVertex opposite = load_vertex(load_index(3 * prim_id + i2));
+		vtx = load_vertex(load_index(3u * prim_id + (is_bottom ? i1 : i0)));
+		ProcessedVertex other = load_vertex(load_index(3u * prim_id + (is_bottom ? i0 : i1)));
+		ProcessedVertex opposite = load_vertex(load_index(3u * prim_id + i2));
 
 		mat2 pos_deltas = get_xy_deltas_unscaled(vtx, other, opposite);
 
@@ -399,25 +410,25 @@ void main()
 
 		VSout.inv_cov = is_outside ? 1.0f : 0.0f; // No coverage on outside, otherwise full.
 
-		VSout.interior = 0;
+		VSout.interior = 0u;
 	}
 	else // Corner cap
 	{
 		// Vertex indices for this cap. We need all 3 for determining exterior/interior.
-		uint prim_offset_cap = prim_offset - 21; // range: 0-8
-		uint i0 = prim_offset_cap / 6;
-		uint i1 = (i0 >= 2) ? i0 - 2 : i0 + 1;
-		uint i2 = (i0 >= 1) ? i0 - 1 : i0 + 2;
-		uint cap_offset = prim_offset_cap - 6 * i0; // range: 0-5
+		uint prim_offset_cap = prim_offset - 21u; // range: 0-8
+		uint i0 = prim_offset_cap / 6u;
+		uint i1 = (i0 >= 2u) ? i0 - 2u : i0 + 1u;
+		uint i2 = (i0 >= 1u) ? i0 - 1u : i0 + 2u;
+		uint cap_offset = prim_offset_cap - 6u * i0; // range: 0-5
 
-		bool is_near_corner = cap_offset == 0 || cap_offset == 3;
-		bool is_far_corner = cap_offset == 2 || cap_offset == 5;
-		bool is_first_tri = cap_offset < 3;
+		bool is_near_corner = cap_offset == 0u || cap_offset == 3u;
+		bool is_far_corner = cap_offset == 2u || cap_offset == 5u;
+		bool is_first_tri = cap_offset < 3u;
 
 		// First triangle is on the side of vertex i1 and second is on the side of vertex i2.
-		vtx = load_vertex(load_index(3 * prim_id + i0));
-		ProcessedVertex other = load_vertex(load_index(3 * prim_id + (is_first_tri ? i1 : i2)));
-		ProcessedVertex opposite = load_vertex(load_index(3 * prim_id + (is_first_tri ? i2 : i1)));
+		vtx = load_vertex(load_index(3u * prim_id + i0));
+		ProcessedVertex other = load_vertex(load_index(3u * prim_id + (is_first_tri ? i1 : i2)));
+		ProcessedVertex opposite = load_vertex(load_index(3u * prim_id + (is_first_tri ? i2 : i1)));
 
 		mat2 pos_deltas = get_xy_deltas_unscaled(vtx, other, opposite);
 
@@ -443,12 +454,7 @@ void main()
 
 		VSout.inv_cov = is_near_corner ? 0.0f : 1.0f; // Full coverage at near corner, otherwise none.
 	
-		VSout.interior = 0;
-
-		#if !VS_IIP
-			// Get the provoking vertex color (last vertex in GL)
-			vtx.c = i0 == 2 ? vtx.c : (i1 == 2 ? other.c : opposite.c);
-		#endif
+		VSout.interior = 0u;
 	}
 
 #endif
